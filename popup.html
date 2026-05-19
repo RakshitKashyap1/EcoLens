@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { width: 220px; padding: 16px; background: #0a0e0b;
+           color: #e8f0e9; font-family: monospace; margin: 0; }
+    h2 { font-size: 11px; color: #5dbf72; letter-spacing: .08em;
+         text-transform: uppercase; margin: 0 0 12px; }
+    .big { font-size: 28px; font-weight: bold; color: #fff; }
+    .sub { font-size: 10px; color: #4a6b4c; margin-top: 2px; }
+    .row { display: flex; justify-content: space-between;
+           padding: 6px 0; border-top: 1px solid #1e2e1f;
+           font-size: 11px; color: #7a9b7c; }
+  </style>
+</head>
+<body>
+  <h2>🌿 EcoLens</h2>
+  <div class="big" id="total">0g</div>
+  <div class="sub">CO₂ this session</div>
+  <div class="row">
+    <span>Google searches</span>
+    <span id="g-count">—</span>
+  </div>
+  <div class="row">
+    <span>ChatGPT queries</span>
+    <span id="c-count">—</span>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

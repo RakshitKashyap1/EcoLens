@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "EcoLens",
+  "version": "1.0",
+  "description": "See the carbon cost of your searches in real time.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [{
+    "matches": [
+      "https://www.google.com/search*",
+      "https://chat.openai.com/*",
+      "https://www.netflix.com/*"
+    ],
+    "js": ["content.js"]
+  }],
+  "permissions": ["storage"],
+  "icons": {
+    "128": "icon.png"
+  }
+}
