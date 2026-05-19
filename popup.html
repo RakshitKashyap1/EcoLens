@@ -1,31 +1,292 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EcoLens</title>
   <style>
-    body { width: 220px; padding: 16px; background: #0a0e0b;
-           color: #e8f0e9; font-family: monospace; margin: 0; }
-    h2 { font-size: 11px; color: #5dbf72; letter-spacing: .08em;
-         text-transform: uppercase; margin: 0 0 12px; }
-    .big { font-size: 28px; font-weight: bold; color: #fff; }
-    .sub { font-size: 10px; color: #4a6b4c; margin-top: 2px; }
-    .row { display: flex; justify-content: space-between;
-           padding: 6px 0; border-top: 1px solid #1e2e1f;
-           font-size: 11px; color: #7a9b7c; }
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 280px;
+      background: #0a0e0b;
+      color: #e8f0e9;
+      font-family: 'DM Mono', 'Courier New', monospace;
+      overflow: hidden;
+    }
+
+    /* ── header ── */
+    .header {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid #1e2e1f;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .logo-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #5dbf72;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity:1; transform:scale(1); }
+      50%      { opacity:0.4; transform:scale(0.75); }
+    }
+    .logo-name {
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      font-weight: 800;
+      color: #f0f7f0;
+      letter-spacing: -0.03em;
+    }
+    .logo-name span { color: #5dbf72; }
+    .version {
+      font-size: 9px;
+      color: #2a4a2c;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── session total ── */
+    .session {
+      padding: 16px 16px 14px;
+      border-bottom: 1px solid #1e2e1f;
+    }
+    .session-label {
+      font-size: 9px;
+      color: #3a5a3c;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .session-co2 {
+      font-family: 'Syne', sans-serif;
+      font-size: 38px;
+      font-weight: 800;
+      color: #5dbf72;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      transition: color 0.4s;
+    }
+    .session-co2.amber { color: #EF9F27; }
+    .session-co2.red   { color: #E24B4A; }
+    .session-sub {
+      font-size: 10px;
+      color: #3a5a3c;
+      margin-top: 4px;
+    }
+    .session-equiv {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: #0d130e;
+      border: 1px solid #1e2e1f;
+      border-radius: 8px;
+      font-size: 10px;
+      color: #7a9b7c;
+      line-height: 1.5;
+    }
+    .session-equiv strong {
+      color: #5dbf72;
+      font-weight: 500;
+      display: block;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    /* ── per-site breakdown ── */
+    .breakdown {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e2e1f;
+    }
+    .breakdown-label {
+      font-size: 9px;
+      color: #3a5a3c;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .site-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 9px;
+    }
+    .site-row:last-child { margin-bottom: 0; }
+    .site-icon {
+      width: 22px; height: 22px;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    .site-name {
+      font-size: 11px;
+      color: #7a9b7c;
+      flex: 1;
+      white-space: nowrap;
+    }
+    .site-count {
+      font-size: 10px;
+      color: #3a5a3c;
+      margin-right: 4px;
+    }
+    .site-grams {
+      font-size: 11px;
+      font-weight: 500;
+      color: #c8e0ca;
+      min-width: 36px;
+      text-align: right;
+    }
+    .bar-track {
+      width: 100%;
+      height: 3px;
+      background: #111a12;
+      border-radius: 100px;
+      margin-top: 3px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 100px;
+      width: 0%;
+      transition: width 1s cubic-bezier(0.25,1,0.5,1);
+    }
+
+    /* ── global counter ── */
+    .global {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e2e1f;
+    }
+    .global-label {
+      font-size: 9px;
+      color: #3a5a3c;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .global-num {
+      font-family: 'Syne', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: #E24B4A;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .global-unit {
+      font-size: 9px;
+      color: #3a5a3c;
+      margin-top: 3px;
+    }
+    .global-sub {
+      font-size: 9px;
+      color: #2a4a2c;
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+    .ticker-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .ticker-item {
+      flex: 1;
+      background: #0d130e;
+      border: 1px solid #1e2e1f;
+      border-radius: 7px;
+      padding: 7px 8px;
+    }
+    .ticker-val {
+      font-size: 13px;
+      font-weight: 500;
+      color: #c8e0ca;
+      font-variant-numeric: tabular-nums;
+    }
+    .ticker-desc {
+      font-size: 8px;
+      color: #3a5a3c;
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+
+    /* ── footer ── */
+    .footer {
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .reset-btn {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      color: #2a4a2c;
+      background: none;
+      border: none;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0;
+      transition: color 0.15s;
+    }
+    .reset-btn:hover { color: #E24B4A; }
+    .source-link {
+      font-size: 9px;
+      color: #2a4a2c;
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .source-link:hover { color: #5dbf72; }
+
+    /* ── empty state ── */
+    .empty {
+      padding: 20px 16px;
+      text-align: center;
+    }
+    .empty-icon { font-size: 28px; margin-bottom: 8px; }
+    .empty-msg {
+      font-size: 11px;
+      color: #3a5a3c;
+      line-height: 1.6;
+    }
+    .empty-msg span { color: #5dbf72; }
+
+    /* ── animations ── */
+    @keyframes count-flash {
+      0%   { color: #5dbf72; }
+      100% { color: inherit; }
+    }
+    .flash { animation: count-flash 0.4s ease; }
   </style>
 </head>
 <body>
-  <h2>🌿 EcoLens</h2>
-  <div class="big" id="total">0g</div>
-  <div class="sub">CO₂ this session</div>
-  <div class="row">
-    <span>Google searches</span>
-    <span id="g-count">—</span>
+
+  <div class="header">
+    <div class="logo">
+      <div class="logo-dot"></div>
+      <div class="logo-name">Eco<span>Lens</span></div>
+    </div>
+    <div class="version">v1.0 · MV3</div>
   </div>
-  <div class="row">
-    <span>ChatGPT queries</span>
-    <span id="c-count">—</span>
+
+  <div id="main-content">
+    <!-- injected by popup.js -->
   </div>
+
+  <div class="footer">
+    <button class="reset-btn" id="reset-btn">↺ reset session</button>
+    <a class="source-link" href="https://www.iea.org/data-and-statistics/data-tools/energy-statistics-data-browser" target="_blank">sources: IEA · Shift Project</a>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>
