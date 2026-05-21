@@ -25,7 +25,7 @@
     .sess-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:5px; }
     .sess-num { font-family:'Syne',sans-serif; font-size:36px; font-weight:800; color:#5dbf72; line-height:1; letter-spacing:-0.04em; transition:color 0.4s; }
     .sess-num.amber { color:#EF9F27; }
-    .sess-num.red   { color:#E24B4A; }
+    .sess-num.red { color:#E24B4A; }
     .sess-sub { font-size:10px; color:#3a5a3c; margin-top:4px; }
     .equiv-box { margin-top:9px; padding:8px 10px; background:#0d130e; border:1px solid #1e2e1f; border-radius:8px; font-size:10px; color:#7a9b7c; line-height:1.5; }
     .equiv-box strong { display:block; font-size:9px; color:#5dbf72; letter-spacing:.08em; text-transform:uppercase; margin-bottom:2px; font-weight:500; }
@@ -40,11 +40,6 @@
     .site-g { font-size:11px; font-weight:500; color:#c8e0ca; min-width:36px; text-align:right; }
     .bar-track { height:2px; background:#111a12; border-radius:100px; overflow:hidden; margin-top:2px; }
     .bar-fill { height:100%; border-radius:100px; width:0%; transition:width 1s cubic-bezier(.25,1,.5,1); }
-
-    .model-row { padding:10px 15px; border-bottom:1px solid #1e2e1f; display:flex; align-items:center; gap:8px; font-size:10px; color:#3a5a3c; }
-    .model-badge { font-size:9px; padding:2px 8px; border-radius:100px; font-weight:500; }
-    .mb-measured { background:#0d1f0e; color:#5dbf72; border:1px solid #2a4a2c; }
-    .mb-estimated { background:#1a150a; color:#EF9F27; border:1px solid #4a3510; }
 
     .device-row { padding:10px 15px; border-bottom:1px solid #1e2e1f; }
     .dev-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:7px; }
@@ -77,7 +72,7 @@
   <div class="grid-strip" id="grid-strip">
     <div class="grid-dot" id="grid-dot" style="background:#3a5a3c"></div>
     <span>Grid:</span>
-    <span class="grid-val" id="grid-val">detecting…</span>
+    <span class="grid-val" id="grid-val">detecting...</span>
     <span class="grid-source" id="grid-source"></span>
   </div>
 
@@ -86,16 +81,16 @@
   <div class="device-row">
     <div class="dev-label">Your device</div>
     <div class="dev-btns">
-      <button class="dev-btn" data-device="phone"   onclick="setDevice(this)">Phone</button>
+      <button class="dev-btn" data-device="phone" onclick="setDevice(this)">Phone</button>
       <button class="dev-btn sel" data-device="laptop" onclick="setDevice(this)">Laptop</button>
       <button class="dev-btn" data-device="desktop" onclick="setDevice(this)">Desktop</button>
-      <button class="dev-btn" data-device="tv"      onclick="setDevice(this)">TV</button>
+      <button class="dev-btn" data-device="tv" onclick="setDevice(this)">TV</button>
     </div>
   </div>
 
   <div class="footer">
-    <button class="reset-btn" id="reset-btn">↺ reset</button>
-    <a class="src-link" href="https://theshiftproject.org" target="_blank">sources: Shift Project · IEA</a>
+    <button class="reset-btn" id="reset-btn">reset</button>
+    <a class="src-link" href="https://theshiftproject.org" target="_blank" rel="noreferrer">sources: Shift Project · IEA</a>
   </div>
 
   <script src="popup.js"></script>
