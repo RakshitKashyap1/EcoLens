@@ -1,3 +1,6 @@
+// Import configuration (API keys, etc.)
+importScripts('config.js');
+
 // ============================================================
 //  EcoLens — background.js  (Phase 1 upgrade)
 //  Service worker that:
@@ -22,8 +25,8 @@ const GRID_FALLBACKS = {
   DEFAULT: 0.350,
 };
 
-// Replace with your free key from app.electricitymaps.com
-const ELECTRICITY_MAPS_KEY = "YOUR_FREE_API_KEY";
+// Loaded from config.js via importScripts
+const ELECTRICITY_MAPS_KEY = CONFIG.ELECTRICITY_MAPS_KEY;
 
 async function fetchGridIntensity() {
   try {
