@@ -1,24 +1,41 @@
 {
   "manifest_version": 3,
   "name": "EcoLens",
-  "version": "1.0",
-  "description": "See the carbon cost of your searches in real time.",
+  "version": "2.0",
+  "description": "Real-time CO₂ tracking for every search, query, and stream — now with grid-aware accuracy.",
+
   "action": {
     "default_popup": "popup.html",
-    "default_icon": "icon.png"
+    "default_icon":  "icon.png"
   },
+
   "background": {
     "service_worker": "background.js"
   },
+
   "content_scripts": [{
     "matches": [
       "https://www.google.com/search*",
       "https://chat.openai.com/*",
-      "https://www.netflix.com/*"
+      "https://chatgpt.com/*",
+      "https://www.netflix.com/watch*",
+      "https://www.youtube.com/watch*"
     ],
-    "js": ["content.js"]
+    "js": ["content.js"],
+    "run_at": "document_idle"
   }],
-  "permissions": ["storage"],
+
+  "permissions": [
+    "storage",
+    "alarms",
+    "webRequest",
+    "notifications"
+  ],
+
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
   "icons": {
     "128": "icon.png"
   }
