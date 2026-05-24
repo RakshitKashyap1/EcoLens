@@ -403,8 +403,13 @@ function collectModelDetectionText() {
 
 function detectModelFromCatalog(catalog, fallback) {
   const text = collectModelDetectionText();
+  const ordered = [...catalog].sort((a, b) => {
+    const aLen = Math.max(...a.aliases.map((alias) => alias.length));
+    const bLen = Math.max(...b.aliases.map((alias) => alias.length));
+    return bLen - aLen;
+  });
 
-  for (const model of catalog) {
+  for (const model of ordered) {
     if (model.aliases.some((alias) => text.includes(alias.toLowerCase()))) {
       return {
         provider: fallback.provider,
