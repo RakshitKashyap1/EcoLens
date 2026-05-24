@@ -5,6 +5,8 @@
 const SITE_META = {
   google: { label: "Google Search", color: "#5dbf72", bg: "#0d1f0e" },
   chatgpt: { label: "ChatGPT", color: "#EF9F27", bg: "#1f180a" },
+  claude: { label: "Claude", color: "#D97706", bg: "#211406" },
+  gemini: { label: "Gemini", color: "#4F86F7", bg: "#0a1530" },
   netflix: { label: "Netflix", color: "#E24B4A", bg: "#1f0a0a" },
   youtube: { label: "YouTube", color: "#E24B4A", bg: "#1f0a0a" },
 };
@@ -197,7 +199,7 @@ function renderSummary(account) {
     return `
       <div class="site-row" style="opacity:${hits > 0 || grams > 0 ? 1 : 0.28}">
         <div class="site-icon" style="background:${meta.bg};color:${meta.color}">
-          ${key === "google" ? "G" : key === "chatgpt" ? "AI" : key === "netflix" ? "N" : "YT"}
+          ${key === "google" ? "G" : key === "chatgpt" ? "AI" : key === "claude" ? "C" : key === "gemini" ? "GM" : key === "netflix" ? "N" : "YT"}
         </div>
         <div class="row-main">
           <div class="row-head">
@@ -231,8 +233,8 @@ function renderEmpty() {
       <div class="empty-icon">o</div>
       <div class="empty-msg">
         No activity yet.<br>
-        Visit <span>google.com</span>, <span>chatgpt.com</span>,<br>
-        or <span>netflix.com</span> to start tracking.
+        Visit <span>chatgpt.com</span>, <span>claude.ai</span>,<br>
+        <span>gemini.google.com</span>, or <span>netflix.com</span>.
       </div>
     </div>`;
 }
@@ -337,6 +339,8 @@ function buildSuggestions(account) {
   const suggestions = [];
   const total = account.totalCo2 || 0;
   const chatgptTotal = account.siteTotals.chatgpt || 0;
+  const claudeTotal = account.siteTotals.claude || 0;
+  const geminiTotal = account.siteTotals.gemini || 0;
   const googleTotal = account.siteTotals.google || 0;
   const youtubeTotal = account.siteTotals.youtube || 0;
   const netflixTotal = account.siteTotals.netflix || 0;
@@ -348,8 +352,14 @@ function buildSuggestions(account) {
   const topModel = heavyModels[0];
   if (topModel) {
     const [modelId, grams] = topModel;
-    if (["o3", "gpt-4.1", "gpt-4o"].includes(modelId) && grams >= 2) {
-      const lighter = modelId === "o3" ? "o4-mini" : modelId === "gpt-4.1" ? "gpt-4.1 mini" : "gpt-4o mini";
+    if (["o3", "gpt-4.1", "gpt-4o", "claude-opus", "claude-sonnet", "gemini-ultra", "gemini-pro", "gemini-2.5-pro"].includes(modelId) && grams >= 2) {
+      const lighter =
+        modelId === "o3" ? "o4-mini" :
+        modelId === "gpt-4.1" ? "gpt-4.1 mini" :
+        modelId === "gpt-4o" ? "gpt-4o mini" :
+        modelId === "claude-opus" ? "Claude Haiku" :
+        modelId === "claude-sonnet" ? "Claude Haiku" :
+        "Gemini Flash";
       suggestions.push({
         title: "Use a lighter AI model first",
         text: `${modelId} produced ${fmt(grams)} today. For drafting, summaries, and search-style prompts, try ${lighter} first and only switch up when the answer quality really needs it.`,
@@ -364,6 +374,20 @@ function buildSuggestions(account) {
     });
   }
 
+  if (claudeTotal >= 3 && (account.counts.claude || 0) >= 3) {
+    suggestions.push({
+      title: "Use Claude Haiku for lighter tasks",
+      text: `Claude contributed ${fmt(claudeTotal)} today. For simpler drafting or classification work, Claude Haiku is usually a better first step than jumping straight to Sonnet or Opus.`,
+    });
+  }
+
+  if (geminiTotal >= 3 && (account.counts.gemini || 0) >= 3) {
+    suggestions.push({
+      title: "Try Gemini Flash first",
+      text: `Gemini contributed ${fmt(geminiTotal)} today. Flash-style models are often enough for quick brainstorming and can keep your AI footprint lower than heavier Gemini variants.`,
+    });
+  }
+
   if ((youtubeTotal + netflixTotal) >= 15) {
     const streamTotal = youtubeTotal + netflixTotal;
     suggestions.push({
@@ -372,7 +396,7 @@ function buildSuggestions(account) {
     });
   }
 
-  if (googleTotal >= 1 && chatgptTotal >= 1) {
+  if (googleTotal >= 1 && (chatgptTotal + claudeTotal + geminiTotal) >= 1) {
     suggestions.push({
       title: "Match the tool to the task",
       text: `You used both search and AI today. Quick factual lookups are usually cheaper in search, while synthesis-heavy tasks justify AI better. Picking the lighter tool first can keep totals down.`,

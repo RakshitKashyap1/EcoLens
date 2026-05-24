@@ -5,6 +5,8 @@
 const BASE = {
   google: { kWh: 0.0003, label: "Google Search", perUnit: "search" },
   chatgpt: { kWh: 0.003, label: "ChatGPT", perUnit: "query" },
+  claude: { kWh: 0.0025, label: "Claude", perUnit: "query" },
+  gemini: { kWh: 0.002, label: "Gemini", perUnit: "query" },
   netflix: { kWh: 0.1, label: "Netflix", perUnit: "hour" },
   youtube: { kWh: 0.036, label: "YouTube", perUnit: "hour" },
 
@@ -28,6 +30,19 @@ const CHATGPT_MODELS = [
   { id: "o3", label: "o3", kWh: 0.006, aliases: ["o3"] },
 ];
 
+const CLAUDE_MODELS = [
+  { id: "claude-haiku", label: "Claude Haiku", kWh: 0.0005, aliases: ["haiku"] },
+  { id: "claude-sonnet", label: "Claude Sonnet", kWh: 0.0018, aliases: ["sonnet"] },
+  { id: "claude-opus", label: "Claude Opus", kWh: 0.0045, aliases: ["opus"] },
+];
+
+const GEMINI_MODELS = [
+  { id: "gemini-flash", label: "Gemini Flash", kWh: 0.0006, aliases: ["flash"] },
+  { id: "gemini-pro", label: "Gemini Pro", kWh: 0.0018, aliases: ["pro"] },
+  { id: "gemini-ultra", label: "Gemini Ultra", kWh: 0.004, aliases: ["ultra"] },
+  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", kWh: 0.0035, aliases: ["2.5 pro"] },
+];
+
 const SITES = {
   google: {
     match: () => location.href.includes("google.com/search"),
@@ -39,6 +54,18 @@ const SITES = {
     match: () => location.href.includes("chat.openai.com") || location.href.includes("chatgpt.com"),
     base: BASE.chatgpt,
     color: "#EF9F27",
+    streaming: false,
+  },
+  claude: {
+    match: () => location.href.includes("claude.ai"),
+    base: BASE.claude,
+    color: "#D97706",
+    streaming: false,
+  },
+  gemini: {
+    match: () => location.href.includes("gemini.google.com"),
+    base: BASE.gemini,
+    color: "#4F86F7",
     streaming: false,
   },
   netflix: {
@@ -58,6 +85,10 @@ const SITES = {
 const DEFAULT_ACCOUNT_ID = "default";
 const DEFAULT_ACCOUNT_NAME = "Personal account";
 const ACTIVITY_RETENTION_DAYS = 90;
+
+function isAiSiteKey(siteKey) {
+  return siteKey === "chatgpt" || siteKey === "claude" || siteKey === "gemini";
+}
 
 function getDayKey(ts = Date.now()) {
   const d = new Date(ts);
@@ -323,21 +354,7 @@ function resetTabBytes() {
 }
 
 function detectChatGptModel() {
-  const selectors = [
-    "button",
-    "[role='button']",
-    "[data-testid]",
-    "[aria-label]",
-    "main",
-    "nav",
-    "header",
-  ];
-
-  const text = selectors
-    .flatMap((selector) => Array.from(document.querySelectorAll(selector)).slice(0, 40))
-    .map((el) => `${el.getAttribute("aria-label") || ""} ${el.textContent || ""}`.trim())
-    .join(" ")
-    .toLowerCase();
+  const text = collectModelDetectionText();
 
   for (const model of CHATGPT_MODELS) {
     if (model.aliases.some((alias) => text.includes(alias.toLowerCase()))) {
@@ -360,9 +377,73 @@ function detectChatGptModel() {
   };
 }
 
+function collectModelDetectionText() {
+  const selectors = [
+    "button",
+    "[role='button']",
+    "[data-testid]",
+    "[aria-label]",
+    "[data-value]",
+    "main",
+    "nav",
+    "header",
+  ];
+
+  return selectors
+    .flatMap((selector) => Array.from(document.querySelectorAll(selector)).slice(0, 60))
+    .map((el) => {
+      const aria = el.getAttribute("aria-label") || "";
+      const dataValue = el.getAttribute("data-value") || "";
+      const text = el.textContent || "";
+      return `${aria} ${dataValue} ${text}`.trim();
+    })
+    .join(" ")
+    .toLowerCase();
+}
+
+function detectModelFromCatalog(catalog, fallback) {
+  const text = collectModelDetectionText();
+
+  for (const model of catalog) {
+    if (model.aliases.some((alias) => text.includes(alias.toLowerCase()))) {
+      return {
+        provider: fallback.provider,
+        modelId: model.id,
+        label: model.label,
+        kWh: model.kWh,
+        confidence: "heuristic",
+      };
+    }
+  }
+
+  return fallback;
+}
+
+function detectClaudeModel() {
+  return detectModelFromCatalog(CLAUDE_MODELS, {
+    provider: "anthropic",
+    modelId: "claude-default",
+    label: "Claude default",
+    kWh: BASE.claude.kWh,
+    confidence: "unknown",
+  });
+}
+
+function detectGeminiModel() {
+  return detectModelFromCatalog(GEMINI_MODELS, {
+    provider: "google",
+    modelId: "gemini-default",
+    label: "Gemini default",
+    kWh: BASE.gemini.kWh,
+    confidence: "unknown",
+  });
+}
+
 function detectAiModel(site) {
-  if (site.key !== "chatgpt") return null;
-  return detectChatGptModel();
+  if (site.key === "chatgpt") return detectChatGptModel();
+  if (site.key === "claude") return detectClaudeModel();
+  if (site.key === "gemini") return detectGeminiModel();
+  return null;
 }
 
 async function calcCo2(site, elapsedHours = 0, aiModel = null) {
@@ -376,7 +457,7 @@ async function calcCo2(site, elapsedHours = 0, aiModel = null) {
   if (bytes > 10_000) {
     const gb = bytes / 1e9;
     networkKwh = gb * BASE.DATA_KWH_PER_GB;
-    if (site.key === "chatgpt" && aiModel?.kWh) {
+    if (isAiSiteKey(site.key) && aiModel?.kWh) {
       networkKwh = Math.max(networkKwh, aiModel.kWh);
     }
   } else {
@@ -512,7 +593,7 @@ function buildBadge(site, result, elapsedHours = 0) {
     </div>
 
     <div class="el-co2" style="color:${site.color}" id="el-co2-num">${fmt(grams)}</div>
-    <div class="el-unit">CO2${site.streaming ? " so far" : site.key === "chatgpt" ? " per prompt" : " this visit"}</div>
+    <div class="el-unit">CO2${site.streaming ? " so far" : isAiSiteKey(site.key) ? " per prompt" : " this visit"}</div>
 
     <div class="el-pills">
       <span class="el-model-pill">${measurementMode}</span>
@@ -603,8 +684,8 @@ let sessionVisibleStartedAt = null;
 let lastStreamingGrams = 0;
 let activeStreamingSite = null;
 let lastUrl = location.href;
-let chatGptQueryBound = false;
-let lastChatGptSubmitAt = 0;
+let aiQueryTrackerBound = false;
+let lastAiSubmitAt = 0;
 
 function getElapsedStreamingHours() {
   const liveVisibleMs = sessionVisibleStartedAt ? Date.now() - sessionVisibleStartedAt : 0;
@@ -629,8 +710,8 @@ function resetStreamingSession() {
   sessionVisibleStartedAt = null;
   lastStreamingGrams = 0;
   activeStreamingSite = null;
-  chatGptQueryBound = false;
-  lastChatGptSubmitAt = 0;
+  aiQueryTrackerBound = false;
+  lastAiSubmitAt = 0;
 }
 
 function startStreamingTicker(site) {
@@ -668,7 +749,7 @@ function startStreamingTicker(site) {
   }, 10_000);
 }
 
-function isChatGptSendButton(target) {
+function isAiSendButton(target) {
   const button = target?.closest?.("button");
   if (!button) return false;
 
@@ -678,12 +759,18 @@ function isChatGptSendButton(target) {
   return (
     testId.includes("send") ||
     label.includes("send message") ||
+    label.includes("send") ||
+    label.includes("submit") ||
+    label.includes("run") ||
+    label.includes("ask") ||
+    label.includes("arrow up") ||
+    label.includes("new chat") === false && (label.includes("send") || label.includes("submit")) ||
     label === "send" ||
     label.includes("submit")
   );
 }
 
-function isChatGptInputSubmit(event) {
+function isAiInputSubmit(event) {
   const target = event.target;
   if (!target) return false;
   const tag = target.tagName?.toLowerCase();
@@ -691,14 +778,14 @@ function isChatGptInputSubmit(event) {
   return isTypingField && event.key === "Enter" && !event.shiftKey && !event.isComposing;
 }
 
-function bindChatGptQueryTracker(site) {
-  if (chatGptQueryBound) return;
-  chatGptQueryBound = true;
+function bindAiQueryTracker(site) {
+  if (aiQueryTrackerBound) return;
+  aiQueryTrackerBound = true;
 
   const scheduleRecord = () => {
     const now = Date.now();
-    if (now - lastChatGptSubmitAt < 1500) return;
-    lastChatGptSubmitAt = now;
+    if (now - lastAiSubmitAt < 1500) return;
+    lastAiSubmitAt = now;
 
     setTimeout(async () => {
       const aiModel = detectAiModel(site);
@@ -729,13 +816,13 @@ function bindChatGptQueryTracker(site) {
   };
 
   document.addEventListener("click", (event) => {
-    if (isChatGptSendButton(event.target)) {
+    if (isAiSendButton(event.target)) {
       scheduleRecord();
     }
   });
 
   document.addEventListener("keydown", (event) => {
-    if (isChatGptInputSubmit(event)) {
+    if (isAiInputSubmit(event)) {
       scheduleRecord();
     }
   });
@@ -769,12 +856,12 @@ async function init() {
     dismiss();
   });
 
-  if (!site.streaming && site.key !== "chatgpt") {
+  if (!site.streaming && !isAiSiteKey(site.key)) {
     setTimeout(dismiss, 15000);
   }
 
-  if (site.key === "chatgpt") {
-    bindChatGptQueryTracker(site);
+  if (isAiSiteKey(site.key)) {
+    bindAiQueryTracker(site);
     return;
   }
 
