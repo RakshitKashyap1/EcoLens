@@ -45,6 +45,84 @@ const SITES = {
   },
 };
 
+const DEFAULT_ACCOUNT_ID = "default";
+
+function buildEmptyAccountState(now = Date.now()) {
+  return {
+    totalCo2: 0,
+    counts: {},
+    siteTotals: {},
+    lastSite: null,
+    lastTs: null,
+    lastResetTs: now,
+  };
+}
+
+function getAccountStorage() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(
+      [
+        "currentAccountId",
+        "accounts",
+        "totalCo2",
+        "counts",
+        "siteTotals",
+        "lastSite",
+        "lastTs",
+        "lastResetTs",
+      ],
+      (stored) => {
+        const currentAccountId = stored.currentAccountId || DEFAULT_ACCOUNT_ID;
+        const accounts = stored.accounts || {};
+
+        if (!accounts[currentAccountId] && (
+          stored.totalCo2 !== undefined ||
+          stored.counts !== undefined ||
+          stored.siteTotals !== undefined ||
+          stored.lastSite !== undefined ||
+          stored.lastTs !== undefined ||
+          stored.lastResetTs !== undefined
+        )) {
+          accounts[currentAccountId] = {
+            ...buildEmptyAccountState(),
+            totalCo2: stored.totalCo2 || 0,
+            counts: stored.counts || {},
+            siteTotals: stored.siteTotals || {},
+            lastSite: stored.lastSite || null,
+            lastTs: stored.lastTs || null,
+            lastResetTs: stored.lastResetTs || Date.now(),
+          };
+        }
+
+        if (!accounts[currentAccountId]) {
+          accounts[currentAccountId] = buildEmptyAccountState();
+        }
+
+        resolve({ currentAccountId, accounts });
+      }
+    );
+  });
+}
+
+function saveAccountStorage(currentAccountId, accounts) {
+  const account = accounts[currentAccountId] || buildEmptyAccountState();
+  return new Promise((resolve) => {
+    chrome.storage.local.set(
+      {
+        currentAccountId,
+        accounts,
+        totalCo2: account.totalCo2,
+        counts: account.counts,
+        siteTotals: account.siteTotals,
+        lastSite: account.lastSite,
+        lastTs: account.lastTs,
+        lastResetTs: account.lastResetTs,
+      },
+      resolve
+    );
+  });
+}
+
 function detectSite() {
   for (const [key, cfg] of Object.entries(SITES)) {
     if (cfg.match()) return { key, ...cfg };
@@ -220,7 +298,7 @@ function buildBadge(site, result, elapsedHours = 0) {
     ? `${(bytes / 1000).toFixed(0)} KB transferred`
     : "measuring...";
 
-  const gridStr = `${(grid.intensity * 1000).toFixed(0)} g/kWh · ${grid.zone}`;
+  const gridStr = `${(grid.intensity * 1000).toFixed(0)} g/kWh - ${grid.zone}`;
   const timeRow = site.streaming
     ? `<div class="el-row"><span class="el-label">Time</span><span class="el-val el-time-val">${Math.round(elapsedHours * 60)} min watched</span></div>`
     : "";
@@ -295,30 +373,29 @@ function updateBadgeMeta({ grams, bytes, elapsedHours, site }) {
 }
 
 function saveVisitToStorage(siteKey, grams) {
-  chrome.storage.local.get(["totalCo2", "counts", "siteTotals"], ({ totalCo2 = 0, counts = {}, siteTotals = {} }) => {
-    counts[siteKey] = (counts[siteKey] || 0) + 1;
-    siteTotals[siteKey] = (siteTotals[siteKey] || 0) + grams;
-    chrome.storage.local.set({
-      totalCo2: totalCo2 + grams,
-      counts,
-      siteTotals,
-      lastSite: siteKey,
-      lastTs: Date.now(),
-    });
+  getAccountStorage().then(({ currentAccountId, accounts }) => {
+    const account = accounts[currentAccountId] || buildEmptyAccountState();
+    account.counts[siteKey] = (account.counts[siteKey] || 0) + 1;
+    account.siteTotals[siteKey] = (account.siteTotals[siteKey] || 0) + grams;
+    account.totalCo2 += grams;
+    account.lastSite = siteKey;
+    account.lastTs = Date.now();
+    accounts[currentAccountId] = account;
+    return saveAccountStorage(currentAccountId, accounts);
   });
 }
 
 function addToSiteTotals(siteKey, grams) {
   if (grams <= 0) return;
 
-  chrome.storage.local.get(["totalCo2", "siteTotals"], ({ totalCo2 = 0, siteTotals = {} }) => {
-    siteTotals[siteKey] = (siteTotals[siteKey] || 0) + grams;
-    chrome.storage.local.set({
-      totalCo2: totalCo2 + grams,
-      siteTotals,
-      lastSite: siteKey,
-      lastTs: Date.now(),
-    });
+  getAccountStorage().then(({ currentAccountId, accounts }) => {
+    const account = accounts[currentAccountId] || buildEmptyAccountState();
+    account.siteTotals[siteKey] = (account.siteTotals[siteKey] || 0) + grams;
+    account.totalCo2 += grams;
+    account.lastSite = siteKey;
+    account.lastTs = Date.now();
+    accounts[currentAccountId] = account;
+    return saveAccountStorage(currentAccountId, accounts);
   });
 }
 

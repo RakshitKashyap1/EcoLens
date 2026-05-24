@@ -18,6 +18,74 @@ const GRID_FALLBACKS = {
 
 const ELECTRICITY_MAPS_KEY = globalThis.CONFIG?.ELECTRICITY_MAPS_KEY ?? "";
 const tabBytes = {};
+const DEFAULT_ACCOUNT_ID = "default";
+
+function buildEmptyAccountState(now = Date.now()) {
+  return {
+    totalCo2: 0,
+    counts: {},
+    siteTotals: {},
+    lastSite: null,
+    lastTs: null,
+    lastResetTs: now,
+  };
+}
+
+async function getAccountStorage() {
+  const stored = await chrome.storage.local.get([
+    "currentAccountId",
+    "accounts",
+    "totalCo2",
+    "counts",
+    "siteTotals",
+    "lastSite",
+    "lastTs",
+    "lastResetTs",
+  ]);
+
+  const currentAccountId = stored.currentAccountId || DEFAULT_ACCOUNT_ID;
+  const accounts = stored.accounts || {};
+
+  // Migrate older flat storage into the default account bucket.
+  if (!accounts[currentAccountId] && (
+    stored.totalCo2 !== undefined ||
+    stored.counts !== undefined ||
+    stored.siteTotals !== undefined ||
+    stored.lastSite !== undefined ||
+    stored.lastTs !== undefined ||
+    stored.lastResetTs !== undefined
+  )) {
+    accounts[currentAccountId] = {
+      ...buildEmptyAccountState(),
+      totalCo2: stored.totalCo2 || 0,
+      counts: stored.counts || {},
+      siteTotals: stored.siteTotals || {},
+      lastSite: stored.lastSite || null,
+      lastTs: stored.lastTs || null,
+      lastResetTs: stored.lastResetTs || Date.now(),
+    };
+  }
+
+  if (!accounts[currentAccountId]) {
+    accounts[currentAccountId] = buildEmptyAccountState();
+  }
+
+  return { currentAccountId, accounts };
+}
+
+async function saveAccountStorage(currentAccountId, accounts) {
+  const account = accounts[currentAccountId] || buildEmptyAccountState();
+  await chrome.storage.local.set({
+    currentAccountId,
+    accounts,
+    totalCo2: account.totalCo2,
+    counts: account.counts,
+    siteTotals: account.siteTotals,
+    lastSite: account.lastSite,
+    lastTs: account.lastTs,
+    lastResetTs: account.lastResetTs,
+  });
+}
 
 async function setFallbackGridIntensity() {
   try {
@@ -25,7 +93,7 @@ async function setFallbackGridIntensity() {
     const zone = (await geoRes.text()).trim();
     const intensity = (GRID_FALLBACKS[zone] ?? GRID_FALLBACKS.DEFAULT) / 1000;
     await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: "fallback" });
-    console.log(`[EcoLens] Fallback grid: ${zone} = ${intensity} kg/Wh`);
+    console.log(`[EcoLens] Fallback grid: ${zone} = ${intensity} kg/kWh`);
   } catch {
     await chrome.storage.local.set({
       gridIntensity: GRID_FALLBACKS.DEFAULT / 1000,
@@ -56,7 +124,7 @@ async function fetchGridIntensity() {
     const em = await emRes.json();
     const intensity = em.carbonIntensity / 1000;
     await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: "live" });
-    console.log(`[EcoLens] Live grid: ${zone} = ${intensity} kg/Wh`);
+    console.log(`[EcoLens] Live grid: ${zone} = ${intensity} kg/kWh`);
   } catch {
     await setFallbackGridIntensity();
   }
@@ -70,17 +138,12 @@ function isSameDay(ts) {
 }
 
 async function maybeResetDaily() {
-  const { lastResetTs } = await chrome.storage.local.get("lastResetTs");
-  if (isSameDay(lastResetTs)) return;
+  const { currentAccountId, accounts } = await getAccountStorage();
+  const account = accounts[currentAccountId];
+  if (isSameDay(account.lastResetTs)) return;
 
-  await chrome.storage.local.set({
-    totalCo2: 0,
-    counts: {},
-    siteTotals: {},
-    lastSite: null,
-    lastTs: null,
-    lastResetTs: Date.now(),
-  });
+  accounts[currentAccountId] = buildEmptyAccountState();
+  await saveAccountStorage(currentAccountId, accounts);
   console.log("[EcoLens] Daily reset.");
 }
 
@@ -129,7 +192,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
-  await chrome.storage.local.set({ totalCo2: 0, counts: {}, siteTotals: {}, lastResetTs: Date.now() });
+  const { currentAccountId, accounts } = await getAccountStorage();
+  if (!accounts[currentAccountId]) {
+    accounts[currentAccountId] = buildEmptyAccountState();
+  }
+  await saveAccountStorage(currentAccountId, accounts);
   await fetchGridIntensity();
 });
 

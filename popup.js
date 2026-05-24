@@ -9,6 +9,96 @@ const SITE_META = {
   youtube: { label: "YouTube", color: "#E24B4A", bg: "#1f0a0a" },
 };
 
+const DEFAULT_ACCOUNT_ID = "default";
+const DEFAULT_ACCOUNT_NAME = "Personal account";
+
+function buildEmptyAccountState(now = Date.now()) {
+  return {
+    totalCo2: 0,
+    counts: {},
+    siteTotals: {},
+    lastSite: null,
+    lastTs: null,
+    lastResetTs: now,
+  };
+}
+
+function getAccountStorage() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(
+      [
+        "currentAccountId",
+        "currentAccountName",
+        "accounts",
+        "totalCo2",
+        "counts",
+        "siteTotals",
+        "lastSite",
+        "lastTs",
+        "lastResetTs",
+        "gridIntensity",
+        "gridZone",
+        "gridSource",
+      ],
+      (stored) => {
+        const currentAccountId = stored.currentAccountId || DEFAULT_ACCOUNT_ID;
+        const currentAccountName = stored.currentAccountName || DEFAULT_ACCOUNT_NAME;
+        const accounts = stored.accounts || {};
+
+        if (!accounts[currentAccountId] && (
+          stored.totalCo2 !== undefined ||
+          stored.counts !== undefined ||
+          stored.siteTotals !== undefined ||
+          stored.lastSite !== undefined ||
+          stored.lastTs !== undefined ||
+          stored.lastResetTs !== undefined
+        )) {
+          accounts[currentAccountId] = {
+            ...buildEmptyAccountState(),
+            totalCo2: stored.totalCo2 || 0,
+            counts: stored.counts || {},
+            siteTotals: stored.siteTotals || {},
+            lastSite: stored.lastSite || null,
+            lastTs: stored.lastTs || null,
+            lastResetTs: stored.lastResetTs || Date.now(),
+          };
+        }
+
+        if (!accounts[currentAccountId]) {
+          accounts[currentAccountId] = buildEmptyAccountState();
+        }
+
+        resolve({
+          currentAccountId,
+          currentAccountName,
+          accounts,
+          gridIntensity: stored.gridIntensity ?? 0.35 / 1000,
+          gridZone: stored.gridZone ?? "-",
+          gridSource: stored.gridSource ?? "default",
+        });
+      }
+    );
+  });
+}
+
+function saveAccountStorage(currentAccountId, currentAccountName, accounts, callback) {
+  const account = accounts[currentAccountId] || buildEmptyAccountState();
+  chrome.storage.local.set(
+    {
+      currentAccountId,
+      currentAccountName,
+      accounts,
+      totalCo2: account.totalCo2,
+      counts: account.counts,
+      siteTotals: account.siteTotals,
+      lastSite: account.lastSite,
+      lastTs: account.lastTs,
+      lastResetTs: account.lastResetTs,
+    },
+    callback
+  );
+}
+
 function fmt(g) {
   if (g <= 0) return "0g";
   if (g < 0.1) return `${g.toFixed(3)}g`;
@@ -43,7 +133,7 @@ function renderGridStrip({ intensity, zone, source }) {
     : "#E24B4A";
 
   if (dot) dot.style.background = dotColor;
-  if (val) val.textContent = `${gPerKwh} g/kWh · ${zone}`;
+  if (val) val.textContent = `${gPerKwh} g/kWh - ${zone}`;
   if (src) src.textContent = source === "live" ? "live" : "regional avg";
 }
 
@@ -77,7 +167,7 @@ function renderSession(totalCo2, counts, siteTotals) {
 
   return `
     <div class="session">
-      <div class="sess-label">Session total</div>
+      <div class="sess-label">Account total</div>
       <div class="sess-num ${clr}">${fmt(totalCo2)}</div>
       <div class="sess-sub">CO2 emitted today</div>
       ${equiv ? `<div class="equiv-box"><strong>That's like...</strong>~ ${equiv}</div>` : ""}
@@ -116,8 +206,6 @@ function setDevice(btn) {
   chrome.storage.local.set({ deviceType: btn.dataset.device });
 }
 
-globalThis.setDevice = setDevice;
-
 function restoreDevice() {
   chrome.storage.local.get("deviceType", ({ deviceType }) => {
     const type = deviceType || "laptop";
@@ -127,37 +215,62 @@ function restoreDevice() {
   });
 }
 
-document.getElementById("reset-btn").addEventListener("click", () => {
-  chrome.storage.local.set({ totalCo2: 0, counts: {}, siteTotals: {}, lastSite: null }, boot);
-});
+function wireEvents() {
+  document.querySelectorAll(".dev-btn").forEach((btn) => {
+    btn.addEventListener("click", () => setDevice(btn));
+  });
 
-function boot() {
-  chrome.storage.local.get(
-    ["totalCo2", "counts", "siteTotals", "gridIntensity", "gridZone", "gridSource"],
-    (d) => {
-      const total = d.totalCo2 || 0;
-      const counts = d.counts || {};
-      const siteTotals = d.siteTotals || {};
+  document.getElementById("account-save").addEventListener("click", async () => {
+    const input = document.getElementById("account-name");
+    const nextName = input.value.trim() || DEFAULT_ACCOUNT_NAME;
+    const { currentAccountId, accounts } = await getAccountStorage();
+    saveAccountStorage(currentAccountId, nextName, accounts, boot);
+  });
 
-      renderGridStrip({
-        intensity: d.gridIntensity ?? 0.35 / 1000,
-        zone: d.gridZone ?? "-",
-        source: d.gridSource ?? "default",
-      });
+  document.getElementById("account-name").addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    const nextName = event.currentTarget.value.trim() || DEFAULT_ACCOUNT_NAME;
+    const { currentAccountId, accounts } = await getAccountStorage();
+    saveAccountStorage(currentAccountId, nextName, accounts, boot);
+  });
 
-      document.getElementById("main-content").innerHTML =
-        total > 0 ? renderSession(total, counts, siteTotals) : renderEmpty();
+  document.getElementById("reset-btn").addEventListener("click", async () => {
+    const { currentAccountId, currentAccountName, accounts } = await getAccountStorage();
+    accounts[currentAccountId] = buildEmptyAccountState();
+    saveAccountStorage(currentAccountId, currentAccountName, accounts, boot);
+  });
+}
 
-      if (total > 0) animateBars();
-      restoreDevice();
-    }
-  );
+async function boot() {
+  const d = await getAccountStorage();
+  const account = d.accounts[d.currentAccountId] || buildEmptyAccountState();
+
+  renderGridStrip({
+    intensity: d.gridIntensity,
+    zone: d.gridZone,
+    source: d.gridSource,
+  });
+
+  document.getElementById("account-name").value = d.currentAccountName;
+  document.getElementById("main-content").innerHTML =
+    account.totalCo2 > 0 ? renderSession(account.totalCo2, account.counts, account.siteTotals) : renderEmpty();
+
+  if (account.totalCo2 > 0) animateBars();
+  restoreDevice();
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && (changes.totalCo2 || changes.counts || changes.siteTotals || changes.gridIntensity)) {
+  if (area === "local" && (
+    changes.totalCo2 ||
+    changes.counts ||
+    changes.siteTotals ||
+    changes.gridIntensity ||
+    changes.currentAccountName ||
+    changes.accounts
+  )) {
     boot();
   }
 });
 
+wireEvents();
 boot();

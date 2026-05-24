@@ -21,6 +21,13 @@
     .grid-val { color:#7a9b7c; }
     .grid-source { margin-left:auto; font-size:9px; color:#2a4a2c; }
 
+    .account-row { padding:10px 15px; border-bottom:1px solid #1e2e1f; }
+    .account-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:7px; }
+    .account-controls { display:flex; gap:6px; }
+    .account-input { flex:1; padding:7px 9px; border:1px solid #1e2e1f; border-radius:7px; background:#050a06; color:#c8e0ca; font-family:'DM Mono','Courier New',monospace; font-size:10px; }
+    .account-input:focus { outline:none; border-color:#2a4a2c; }
+    .account-save { padding:0 9px; border:1px solid #1e2e1f; border-radius:7px; background:#0d1f0e; color:#5dbf72; font-family:'DM Mono','Courier New',monospace; font-size:9px; text-transform:uppercase; cursor:pointer; }
+
     .session { padding:14px 15px 12px; border-bottom:1px solid #1e2e1f; }
     .sess-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:5px; }
     .sess-num { font-family:'Syne',sans-serif; font-size:36px; font-weight:800; color:#5dbf72; line-height:1; letter-spacing:-0.04em; transition:color 0.4s; }
@@ -66,7 +73,7 @@
       <div class="logo-dot"></div>
       <div class="logo-name">Eco<span>Lens</span></div>
     </div>
-    <div class="ver">v2.0 · Phase 1</div>
+    <div class="ver">v2.0 - Phase 1</div>
   </div>
 
   <div class="grid-strip" id="grid-strip">
@@ -76,21 +83,29 @@
     <span class="grid-source" id="grid-source"></span>
   </div>
 
+  <div class="account-row">
+    <div class="account-label">Tracked account</div>
+    <div class="account-controls">
+      <input class="account-input" id="account-name" type="text" maxlength="32" placeholder="Personal account">
+      <button class="account-save" id="account-save">save</button>
+    </div>
+  </div>
+
   <div id="main-content"></div>
 
   <div class="device-row">
     <div class="dev-label">Your device</div>
     <div class="dev-btns">
-      <button class="dev-btn" data-device="phone" onclick="setDevice(this)">Phone</button>
-      <button class="dev-btn sel" data-device="laptop" onclick="setDevice(this)">Laptop</button>
-      <button class="dev-btn" data-device="desktop" onclick="setDevice(this)">Desktop</button>
-      <button class="dev-btn" data-device="tv" onclick="setDevice(this)">TV</button>
+      <button class="dev-btn" data-device="phone">Phone</button>
+      <button class="dev-btn sel" data-device="laptop">Laptop</button>
+      <button class="dev-btn" data-device="desktop">Desktop</button>
+      <button class="dev-btn" data-device="tv">TV</button>
     </div>
   </div>
 
   <div class="footer">
     <button class="reset-btn" id="reset-btn">reset</button>
-    <a class="src-link" href="https://theshiftproject.org" target="_blank" rel="noreferrer">sources: Shift Project · IEA</a>
+    <a class="src-link" href="https://theshiftproject.org" target="_blank" rel="noreferrer">sources: Shift Project - IEA</a>
   </div>
 
   <script src="popup.js"></script>
