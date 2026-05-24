@@ -6,7 +6,7 @@
   <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap');
     * { box-sizing:border-box; margin:0; padding:0; }
-    body { width:260px; background:#0a0e0b; color:#e8f0e9; font-family:'DM Mono','Courier New',monospace; overflow:hidden; }
+    body { width:340px; background:#0a0e0b; color:#e8f0e9; font-family:'DM Mono','Courier New',monospace; overflow-x:hidden; }
 
     .hd { padding:13px 15px 11px; border-bottom:1px solid #1e2e1f; display:flex; align-items:center; justify-content:space-between; }
     .logo { display:flex; align-items:center; gap:7px; }
@@ -21,14 +21,15 @@
     .grid-val { color:#7a9b7c; }
     .grid-source { margin-left:auto; font-size:9px; color:#2a4a2c; }
 
-    .account-row { padding:10px 15px; border-bottom:1px solid #1e2e1f; }
-    .account-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:7px; }
-    .account-controls { display:flex; gap:6px; }
-    .account-input { flex:1; padding:7px 9px; border:1px solid #1e2e1f; border-radius:7px; background:#050a06; color:#c8e0ca; font-family:'DM Mono','Courier New',monospace; font-size:10px; }
-    .account-input:focus { outline:none; border-color:#2a4a2c; }
-    .account-save { padding:0 9px; border:1px solid #1e2e1f; border-radius:7px; background:#0d1f0e; color:#5dbf72; font-family:'DM Mono','Courier New',monospace; font-size:9px; text-transform:uppercase; cursor:pointer; }
+    .section { padding:12px 15px; border-bottom:1px solid #1e2e1f; }
+    .section-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:8px; }
 
-    .session { padding:14px 15px 12px; border-bottom:1px solid #1e2e1f; }
+    .account-controls { display:flex; gap:6px; }
+    .account-input, .budget-input { flex:1; padding:7px 9px; border:1px solid #1e2e1f; border-radius:7px; background:#050a06; color:#c8e0ca; font-family:'DM Mono','Courier New',monospace; font-size:10px; }
+    .account-input:focus, .budget-input:focus { outline:none; border-color:#2a4a2c; }
+    .account-save, .budget-save { padding:0 10px; border:1px solid #1e2e1f; border-radius:7px; background:#0d1f0e; color:#5dbf72; font-family:'DM Mono','Courier New',monospace; font-size:9px; text-transform:uppercase; cursor:pointer; }
+
+    .session-card { padding:14px 15px 12px; border-bottom:1px solid #1e2e1f; }
     .sess-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:5px; }
     .sess-num { font-family:'Syne',sans-serif; font-size:36px; font-weight:800; color:#5dbf72; line-height:1; letter-spacing:-0.04em; transition:color 0.4s; }
     .sess-num.amber { color:#EF9F27; }
@@ -37,18 +38,36 @@
     .equiv-box { margin-top:9px; padding:8px 10px; background:#0d130e; border:1px solid #1e2e1f; border-radius:8px; font-size:10px; color:#7a9b7c; line-height:1.5; }
     .equiv-box strong { display:block; font-size:9px; color:#5dbf72; letter-spacing:.08em; text-transform:uppercase; margin-bottom:2px; font-weight:500; }
 
-    .breakdown { padding:11px 15px; border-bottom:1px solid #1e2e1f; }
-    .bd-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:9px; }
-    .site-row { display:flex; align-items:center; gap:7px; margin-bottom:8px; }
-    .site-row:last-child { margin-bottom:0; }
+    .breakdown { display:grid; gap:8px; }
+    .site-row, .model-row { display:flex; align-items:center; gap:7px; }
     .site-icon { width:20px; height:20px; border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:500; flex-shrink:0; }
-    .site-name { font-size:11px; color:#7a9b7c; flex:1; }
-    .site-count { font-size:10px; color:#2a4a2c; }
-    .site-g { font-size:11px; font-weight:500; color:#c8e0ca; min-width:36px; text-align:right; }
-    .bar-track { height:2px; background:#111a12; border-radius:100px; overflow:hidden; margin-top:2px; }
-    .bar-fill { height:100%; border-radius:100px; width:0%; transition:width 1s cubic-bezier(.25,1,.5,1); }
+    .row-main { flex:1; }
+    .row-head { display:flex; align-items:center; gap:6px; }
+    .site-name, .model-name { font-size:11px; color:#7a9b7c; flex:1; }
+    .site-count, .model-share { font-size:10px; color:#2a4a2c; }
+    .site-g, .model-g { font-size:11px; font-weight:500; color:#c8e0ca; min-width:42px; text-align:right; }
+    .bar-track { height:3px; background:#111a12; border-radius:100px; overflow:hidden; margin-top:3px; }
+    .bar-fill { height:100%; width:0%; border-radius:100px; transition:width 1s cubic-bezier(.25,1,.5,1); }
 
-    .device-row { padding:10px 15px; border-bottom:1px solid #1e2e1f; }
+    .budget-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+    .budget-check { accent-color:#5dbf72; }
+    .budget-status { font-size:10px; color:#7a9b7c; margin-top:8px; }
+    .budget-meter { margin-top:8px; }
+    .budget-meter .bar-track { height:5px; }
+
+    .suggestion-card { padding:10px 11px; border:1px solid #1e2e1f; border-radius:10px; background:#0d130e; margin-top:8px; }
+    .suggestion-title { font-size:9px; color:#5dbf72; letter-spacing:.08em; text-transform:uppercase; margin-bottom:5px; }
+    .suggestion-text { font-size:10px; color:#7a9b7c; line-height:1.5; }
+
+    .chart { display:flex; align-items:flex-end; gap:6px; height:110px; margin-top:8px; }
+    .chart-col { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:5px; min-width:0; }
+    .chart-bar-wrap { height:84px; width:100%; display:flex; align-items:flex-end; }
+    .chart-bar { width:100%; border-radius:6px 6px 2px 2px; background:linear-gradient(180deg,#5dbf72 0%,#214126 100%); min-height:2px; transition:height .8s ease; }
+    .chart-bar.month { background:linear-gradient(180deg,#EF9F27 0%,#4d2c08 100%); }
+    .chart-val { font-size:9px; color:#7a9b7c; }
+    .chart-lbl { font-size:8px; color:#3a5a3c; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; text-align:center; }
+
+    .device-row { padding:12px 15px; border-bottom:1px solid #1e2e1f; }
     .dev-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:7px; }
     .dev-btns { display:flex; gap:5px; }
     .dev-btn { flex:1; padding:5px 0; border:1px solid #1e2e1f; border-radius:6px; background:transparent; color:#4a6b4c; font-family:'DM Mono',monospace; font-size:9px; cursor:pointer; text-align:center; transition:all .15s; }
@@ -61,7 +80,7 @@
     .src-link { font-size:9px; color:#2a4a2c; text-decoration:none; transition:color .15s; }
     .src-link:hover { color:#5dbf72; }
 
-    .empty { padding:20px 15px; text-align:center; }
+    .empty { padding:18px 15px; text-align:center; }
     .empty-icon { font-size:26px; margin-bottom:8px; color:#1e2e1f; }
     .empty-msg { font-size:11px; color:#3a5a3c; line-height:1.7; }
     .empty-msg span { color:#5dbf72; }
@@ -73,7 +92,7 @@
       <div class="logo-dot"></div>
       <div class="logo-name">Eco<span>Lens</span></div>
     </div>
-    <div class="ver">v2.0 - Phase 1</div>
+    <div class="ver">v2.1 - History</div>
   </div>
 
   <div class="grid-strip" id="grid-strip">
@@ -83,15 +102,49 @@
     <span class="grid-source" id="grid-source"></span>
   </div>
 
-  <div class="account-row">
-    <div class="account-label">Tracked account</div>
+  <div class="section">
+    <div class="section-label">Tracked account</div>
     <div class="account-controls">
       <input class="account-input" id="account-name" type="text" maxlength="32" placeholder="Personal account">
       <button class="account-save" id="account-save">save</button>
     </div>
   </div>
 
-  <div id="main-content"></div>
+  <div id="summary-content"></div>
+
+  <div class="section">
+    <div class="section-label">Daily budget</div>
+    <div class="budget-row">
+      <input type="checkbox" class="budget-check" id="budget-enabled">
+      <span style="font-size:10px;color:#7a9b7c;">Enable alerts</span>
+    </div>
+    <div class="account-controls">
+      <input class="budget-input" id="budget-grams" type="number" min="1" step="1" placeholder="50">
+      <button class="budget-save" id="budget-save">save</button>
+    </div>
+    <div class="budget-status" id="budget-status"></div>
+    <div class="budget-meter" id="budget-meter"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Model breakdown</div>
+    <div id="model-breakdown"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Greener suggestions</div>
+    <div id="suggestions"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Last 7 days</div>
+    <div id="week-chart"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Last 30 days</div>
+    <div id="month-chart"></div>
+  </div>
 
   <div class="device-row">
     <div class="dev-label">Your device</div>
@@ -104,7 +157,7 @@
   </div>
 
   <div class="footer">
-    <button class="reset-btn" id="reset-btn">reset</button>
+    <button class="reset-btn" id="reset-btn">reset today</button>
     <a class="src-link" href="https://theshiftproject.org" target="_blank" rel="noreferrer">sources: Shift Project - IEA</a>
   </div>
 

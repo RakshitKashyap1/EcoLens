@@ -18,6 +18,16 @@ const BASE = {
   },
 };
 
+const CHATGPT_MODELS = [
+  { id: "gpt-3.5", label: "GPT-3.5", kWh: 0.0003, aliases: ["gpt-3.5", "3.5"] },
+  { id: "gpt-4o-mini", label: "GPT-4o mini", kWh: 0.0006, aliases: ["gpt-4o mini", "4o mini"] },
+  { id: "gpt-4.1-mini", label: "GPT-4.1 mini", kWh: 0.0008, aliases: ["gpt-4.1 mini", "4.1 mini"] },
+  { id: "o4-mini", label: "o4-mini", kWh: 0.0015, aliases: ["o4-mini", "o4 mini"] },
+  { id: "gpt-4o", label: "GPT-4o", kWh: 0.003, aliases: ["gpt-4o", "4o"] },
+  { id: "gpt-4.1", label: "GPT-4.1", kWh: 0.0035, aliases: ["gpt-4.1", "4.1"] },
+  { id: "o3", label: "o3", kWh: 0.006, aliases: ["o3"] },
+];
+
 const SITES = {
   google: {
     match: () => location.href.includes("google.com/search"),
@@ -46,16 +56,144 @@ const SITES = {
 };
 
 const DEFAULT_ACCOUNT_ID = "default";
+const DEFAULT_ACCOUNT_NAME = "Personal account";
+const ACTIVITY_RETENTION_DAYS = 90;
+
+function getDayKey(ts = Date.now()) {
+  const d = new Date(ts);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function buildEmptyAccountState(now = Date.now()) {
   return {
+    profile: {
+      name: DEFAULT_ACCOUNT_NAME,
+    },
     totalCo2: 0,
     counts: {},
     siteTotals: {},
+    modelTotals: {},
+    dailyTotals: {},
+    activityLog: [],
+    budget: {
+      enabled: false,
+      dailyGrams: 50,
+      alert80Date: null,
+      alert100Date: null,
+    },
     lastSite: null,
     lastTs: null,
     lastResetTs: now,
   };
+}
+
+function buildEmptyDailySnapshot() {
+  return {
+    totalCo2: 0,
+    bySite: {},
+    byModel: {},
+    counts: {},
+    eventCount: 0,
+  };
+}
+
+function normalizeAccountState(account, fallbackName = DEFAULT_ACCOUNT_NAME) {
+  const base = buildEmptyAccountState();
+  const next = {
+    ...base,
+    ...account,
+  };
+
+  next.profile = {
+    ...base.profile,
+    ...(account?.profile || {}),
+  };
+  next.profile.name = next.profile.name || fallbackName;
+  next.counts = { ...base.counts, ...(account?.counts || {}) };
+  next.siteTotals = { ...base.siteTotals, ...(account?.siteTotals || {}) };
+  next.modelTotals = { ...base.modelTotals, ...(account?.modelTotals || {}) };
+  next.dailyTotals = { ...base.dailyTotals, ...(account?.dailyTotals || {}) };
+  next.activityLog = Array.isArray(account?.activityLog) ? account.activityLog : [];
+  next.budget = {
+    ...base.budget,
+    ...(account?.budget || {}),
+  };
+
+  return next;
+}
+
+function ensureActiveDay(account, now = Date.now()) {
+  if (getDayKey(account.lastResetTs) === getDayKey(now)) return account;
+
+  account.totalCo2 = 0;
+  account.counts = {};
+  account.siteTotals = {};
+  account.modelTotals = {};
+  account.lastSite = null;
+  account.lastTs = null;
+  account.lastResetTs = now;
+  account.budget.alert80Date = null;
+  account.budget.alert100Date = null;
+  return account;
+}
+
+function pruneAccountHistory(account, now = Date.now()) {
+  const cutoff = now - (ACTIVITY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  account.activityLog = account.activityLog.filter((event) => (event?.ts || 0) >= cutoff);
+  return account;
+}
+
+function applyUsageEvent(account, event) {
+  const ts = event.ts || Date.now();
+  ensureActiveDay(account, ts);
+
+  const grams = Math.max(0, event.grams || 0);
+  const dayKey = getDayKey(ts);
+  const siteKey = event.siteKey;
+  const modelId = event.modelId || "unknown";
+  const shouldIncrementCount = event.incrementCount !== false;
+
+  account.totalCo2 += grams;
+  account.siteTotals[siteKey] = (account.siteTotals[siteKey] || 0) + grams;
+  if (shouldIncrementCount) {
+    account.counts[siteKey] = (account.counts[siteKey] || 0) + 1;
+  }
+
+  if (event.modelLabel) {
+    account.modelTotals[modelId] = (account.modelTotals[modelId] || 0) + grams;
+  }
+
+  const day = account.dailyTotals[dayKey] || buildEmptyDailySnapshot();
+  day.totalCo2 += grams;
+  day.bySite[siteKey] = (day.bySite[siteKey] || 0) + grams;
+  if (event.modelLabel) {
+    day.byModel[modelId] = (day.byModel[modelId] || 0) + grams;
+  }
+  if (shouldIncrementCount) {
+    day.counts[siteKey] = (day.counts[siteKey] || 0) + 1;
+  }
+  day.eventCount += 1;
+  account.dailyTotals[dayKey] = day;
+
+  account.activityLog.push({
+    ts,
+    siteKey,
+    grams,
+    bytes: event.bytes || 0,
+    provider: event.provider || null,
+    modelId: event.modelId || null,
+    modelLabel: event.modelLabel || null,
+    measurementMode: event.measurementMode || "estimated",
+    type: event.type || "visit",
+  });
+
+  pruneAccountHistory(account, ts);
+  account.lastSite = siteKey;
+  account.lastTs = ts;
+  return account;
 }
 
 function getAccountStorage() {
@@ -63,6 +201,7 @@ function getAccountStorage() {
     chrome.storage.local.get(
       [
         "currentAccountId",
+        "currentAccountName",
         "accounts",
         "totalCo2",
         "counts",
@@ -73,6 +212,7 @@ function getAccountStorage() {
       ],
       (stored) => {
         const currentAccountId = stored.currentAccountId || DEFAULT_ACCOUNT_ID;
+        const currentAccountName = stored.currentAccountName || DEFAULT_ACCOUNT_NAME;
         const accounts = stored.accounts || {};
 
         if (!accounts[currentAccountId] && (
@@ -83,37 +223,43 @@ function getAccountStorage() {
           stored.lastTs !== undefined ||
           stored.lastResetTs !== undefined
         )) {
-          accounts[currentAccountId] = {
-            ...buildEmptyAccountState(),
+          accounts[currentAccountId] = normalizeAccountState({
+            profile: { name: currentAccountName },
             totalCo2: stored.totalCo2 || 0,
             counts: stored.counts || {},
             siteTotals: stored.siteTotals || {},
             lastSite: stored.lastSite || null,
             lastTs: stored.lastTs || null,
             lastResetTs: stored.lastResetTs || Date.now(),
-          };
+          }, currentAccountName);
         }
 
-        if (!accounts[currentAccountId]) {
-          accounts[currentAccountId] = buildEmptyAccountState();
-        }
+        accounts[currentAccountId] = normalizeAccountState(accounts[currentAccountId], currentAccountName);
 
-        resolve({ currentAccountId, accounts });
+        resolve({
+          currentAccountId,
+          currentAccountName: accounts[currentAccountId].profile.name || currentAccountName,
+          accounts,
+        });
       }
     );
   });
 }
 
-function saveAccountStorage(currentAccountId, accounts) {
-  const account = accounts[currentAccountId] || buildEmptyAccountState();
+function saveAccountStorage(currentAccountId, currentAccountName, accounts) {
+  const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
+  accounts[currentAccountId] = account;
+
   return new Promise((resolve) => {
     chrome.storage.local.set(
       {
         currentAccountId,
+        currentAccountName: account.profile.name,
         accounts,
         totalCo2: account.totalCo2,
         counts: account.counts,
         siteTotals: account.siteTotals,
+        modelTotals: account.modelTotals,
         lastSite: account.lastSite,
         lastTs: account.lastTs,
         lastResetTs: account.lastResetTs,
@@ -176,18 +322,65 @@ function resetTabBytes() {
   });
 }
 
-async function calcCo2(site, elapsedHours = 0) {
+function detectChatGptModel() {
+  const selectors = [
+    "button",
+    "[role='button']",
+    "[data-testid]",
+    "[aria-label]",
+    "main",
+    "nav",
+    "header",
+  ];
+
+  const text = selectors
+    .flatMap((selector) => Array.from(document.querySelectorAll(selector)).slice(0, 40))
+    .map((el) => `${el.getAttribute("aria-label") || ""} ${el.textContent || ""}`.trim())
+    .join(" ")
+    .toLowerCase();
+
+  for (const model of CHATGPT_MODELS) {
+    if (model.aliases.some((alias) => text.includes(alias.toLowerCase()))) {
+      return {
+        provider: "openai",
+        modelId: model.id,
+        label: model.label,
+        kWh: model.kWh,
+        confidence: "heuristic",
+      };
+    }
+  }
+
+  return {
+    provider: "openai",
+    modelId: "chatgpt-default",
+    label: "ChatGPT default",
+    kWh: BASE.chatgpt.kWh,
+    confidence: "unknown",
+  };
+}
+
+function detectAiModel(site) {
+  if (site.key !== "chatgpt") return null;
+  return detectChatGptModel();
+}
+
+async function calcCo2(site, elapsedHours = 0, aiModel = null) {
   const grid = await getGridIntensity();
   const deviceKwh = await getDeviceKwhPerHour();
   const bytes = await queryTabBytes();
 
   let networkKwh = 0;
+  const fallbackBaseKwh = aiModel?.kWh || site.base.kWh;
 
   if (bytes > 10_000) {
     const gb = bytes / 1e9;
     networkKwh = gb * BASE.DATA_KWH_PER_GB;
+    if (site.key === "chatgpt" && aiModel?.kWh) {
+      networkKwh = Math.max(networkKwh, aiModel.kWh);
+    }
   } else {
-    networkKwh = site.base.kWh;
+    networkKwh = fallbackBaseKwh;
   }
 
   if (site.streaming && elapsedHours > 0) {
@@ -204,7 +397,8 @@ async function calcCo2(site, elapsedHours = 0) {
     bytes,
     networkKwh,
     deviceKwh,
-    model: bytes > 10_000 ? "measured" : "estimated",
+    measurementMode: bytes > 10_000 ? "measured" : "estimated",
+    aiModel,
   };
 }
 
@@ -254,7 +448,7 @@ function injectStyles() {
     }
     #ecolens-badge {
       position:fixed; bottom:22px; right:22px; z-index:2147483647;
-      min-width:210px; background:#0a0e0b;
+      min-width:230px; background:#0a0e0b;
       border-radius:14px; border:1px solid #2a4a2c;
       padding:12px 16px 11px;
       font-family:'DM Mono','Courier New',monospace;
@@ -273,8 +467,9 @@ function injectStyles() {
     #ecolens-badge .el-row { display:flex;align-items:baseline;gap:6px;margin-bottom:4px; }
     #ecolens-badge .el-label { font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#3a5a3c;flex:1; }
     #ecolens-badge .el-val { font-size:11px;color:#7a9b7c; }
+    #ecolens-badge .el-pills { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; }
     #ecolens-badge .el-model-pill {
-      display:inline-block;font-size:9px;padding:1px 6px;border-radius:100px;margin-bottom:8px;
+      display:inline-block;font-size:9px;padding:1px 6px;border-radius:100px;
       background:#0d1f0e;color:#5dbf72;border:1px solid #2a4a2c;
     }
     #ecolens-badge .el-bar-track { height:3px;background:#111a12;border-radius:100px;overflow:hidden;margin-top:8px; }
@@ -287,7 +482,7 @@ function injectStyles() {
 }
 
 function buildBadge(site, result, elapsedHours = 0) {
-  const { grams, grid, bytes, model } = result;
+  const { grams, grid, bytes, measurementMode, aiModel } = result;
   const pct = Math.min((grams / 36) * 100, 100).toFixed(1);
   const badge = document.createElement("div");
   badge.id = "ecolens-badge";
@@ -302,6 +497,12 @@ function buildBadge(site, result, elapsedHours = 0) {
   const timeRow = site.streaming
     ? `<div class="el-row"><span class="el-label">Time</span><span class="el-val el-time-val">${Math.round(elapsedHours * 60)} min watched</span></div>`
     : "";
+  const modelRow = aiModel
+    ? `<div class="el-row"><span class="el-label">Model</span><span class="el-val el-model-name">${aiModel.label}</span></div>`
+    : "";
+  const modelPill = aiModel
+    ? `<span class="el-model-pill">${aiModel.confidence === "heuristic" ? "model heuristic" : "model default"}</span>`
+    : "";
 
   badge.innerHTML = `
     <div class="el-hd">
@@ -311,9 +512,12 @@ function buildBadge(site, result, elapsedHours = 0) {
     </div>
 
     <div class="el-co2" style="color:${site.color}" id="el-co2-num">${fmt(grams)}</div>
-    <div class="el-unit">CO2${site.streaming ? " so far" : " this visit"}</div>
+    <div class="el-unit">CO2${site.streaming ? " so far" : site.key === "chatgpt" ? " per prompt" : " this visit"}</div>
 
-    <span class="el-model-pill">${model === "measured" ? "measured" : "estimated"}</span>
+    <div class="el-pills">
+      <span class="el-model-pill">${measurementMode}</span>
+      ${modelPill}
+    </div>
 
     <div class="el-divider"></div>
 
@@ -325,6 +529,7 @@ function buildBadge(site, result, elapsedHours = 0) {
       <span class="el-label">Data</span>
       <span class="el-val el-data-val">${bytesStr}</span>
     </div>
+    ${modelRow}
     ${timeRow}
     <div class="el-row">
       <span class="el-label">Like...</span>
@@ -352,12 +557,14 @@ function updateBadgeNumber(grams, color) {
   }
 }
 
-function updateBadgeMeta({ grams, bytes, elapsedHours, site }) {
+function updateBadgeMeta({ grams, bytes, elapsedHours, site, aiModel, measurementMode }) {
   const dataEl = document.querySelector("#ecolens-badge .el-data-val");
   const likeEl = document.querySelector("#ecolens-badge .el-like-val");
   const compareEl = document.querySelector("#ecolens-badge .el-compare-current");
   const barEl = document.getElementById("el-bar");
   const timeEl = document.querySelector("#ecolens-badge .el-time-val");
+  const modelEl = document.querySelector("#ecolens-badge .el-model-name");
+  const pillEl = document.querySelector("#ecolens-badge .el-pills .el-model-pill");
 
   const bytesStr = bytes > 1e6
     ? `${(bytes / 1e6).toFixed(1)} MB transferred`
@@ -370,32 +577,16 @@ function updateBadgeMeta({ grams, bytes, elapsedHours, site }) {
   if (compareEl) compareEl.textContent = fmt(grams);
   if (barEl) barEl.style.width = `${Math.min((grams / 36) * 100, 100).toFixed(1)}%`;
   if (site.streaming && timeEl) timeEl.textContent = `${Math.round(elapsedHours * 60)} min watched`;
+  if (modelEl && aiModel) modelEl.textContent = aiModel.label;
+  if (pillEl && measurementMode) pillEl.textContent = measurementMode;
 }
 
-function saveVisitToStorage(siteKey, grams) {
-  getAccountStorage().then(({ currentAccountId, accounts }) => {
-    const account = accounts[currentAccountId] || buildEmptyAccountState();
-    account.counts[siteKey] = (account.counts[siteKey] || 0) + 1;
-    account.siteTotals[siteKey] = (account.siteTotals[siteKey] || 0) + grams;
-    account.totalCo2 += grams;
-    account.lastSite = siteKey;
-    account.lastTs = Date.now();
+function recordUsageEvent(event) {
+  return getAccountStorage().then(({ currentAccountId, currentAccountName, accounts }) => {
+    const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
+    applyUsageEvent(account, event);
     accounts[currentAccountId] = account;
-    return saveAccountStorage(currentAccountId, accounts);
-  });
-}
-
-function addToSiteTotals(siteKey, grams) {
-  if (grams <= 0) return;
-
-  getAccountStorage().then(({ currentAccountId, accounts }) => {
-    const account = accounts[currentAccountId] || buildEmptyAccountState();
-    account.siteTotals[siteKey] = (account.siteTotals[siteKey] || 0) + grams;
-    account.totalCo2 += grams;
-    account.lastSite = siteKey;
-    account.lastTs = Date.now();
-    accounts[currentAccountId] = account;
-    return saveAccountStorage(currentAccountId, accounts);
+    return saveAccountStorage(currentAccountId, currentAccountName, accounts);
   });
 }
 
@@ -412,6 +603,8 @@ let sessionVisibleStartedAt = null;
 let lastStreamingGrams = 0;
 let activeStreamingSite = null;
 let lastUrl = location.href;
+let chatGptQueryBound = false;
+let lastChatGptSubmitAt = 0;
 
 function getElapsedStreamingHours() {
   const liveVisibleMs = sessionVisibleStartedAt ? Date.now() - sessionVisibleStartedAt : 0;
@@ -436,6 +629,8 @@ function resetStreamingSession() {
   sessionVisibleStartedAt = null;
   lastStreamingGrams = 0;
   activeStreamingSite = null;
+  chatGptQueryBound = false;
+  lastChatGptSubmitAt = 0;
 }
 
 function startStreamingTicker(site) {
@@ -454,14 +649,96 @@ function startStreamingTicker(site) {
       bytes: updated.bytes,
       elapsedHours,
       site,
+      measurementMode: updated.measurementMode,
     });
 
     const delta = updated.grams - lastStreamingGrams;
     if (delta > 0) {
-      addToSiteTotals(site.key, delta);
+      await recordUsageEvent({
+        ts: Date.now(),
+        siteKey: site.key,
+        grams: delta,
+        bytes: updated.bytes,
+        type: "stream",
+        incrementCount: false,
+        measurementMode: updated.measurementMode,
+      });
       lastStreamingGrams = updated.grams;
     }
   }, 10_000);
+}
+
+function isChatGptSendButton(target) {
+  const button = target?.closest?.("button");
+  if (!button) return false;
+
+  const label = `${button.getAttribute("aria-label") || ""} ${button.textContent || ""}`.toLowerCase();
+  const testId = (button.getAttribute("data-testid") || "").toLowerCase();
+
+  return (
+    testId.includes("send") ||
+    label.includes("send message") ||
+    label === "send" ||
+    label.includes("submit")
+  );
+}
+
+function isChatGptInputSubmit(event) {
+  const target = event.target;
+  if (!target) return false;
+  const tag = target.tagName?.toLowerCase();
+  const isTypingField = tag === "textarea" || target.getAttribute?.("contenteditable") === "true";
+  return isTypingField && event.key === "Enter" && !event.shiftKey && !event.isComposing;
+}
+
+function bindChatGptQueryTracker(site) {
+  if (chatGptQueryBound) return;
+  chatGptQueryBound = true;
+
+  const scheduleRecord = () => {
+    const now = Date.now();
+    if (now - lastChatGptSubmitAt < 1500) return;
+    lastChatGptSubmitAt = now;
+
+    setTimeout(async () => {
+      const aiModel = detectAiModel(site);
+      const result = await calcCo2(site, 0, aiModel);
+      updateBadgeNumber(result.grams, site.color);
+      updateBadgeMeta({
+        grams: result.grams,
+        bytes: result.bytes,
+        elapsedHours: 0,
+        site,
+        aiModel,
+        measurementMode: result.measurementMode,
+      });
+
+      await recordUsageEvent({
+        ts: Date.now(),
+        siteKey: site.key,
+        grams: result.grams,
+        bytes: result.bytes,
+        provider: aiModel?.provider || null,
+        modelId: aiModel?.modelId || null,
+        modelLabel: aiModel?.label || null,
+        type: "query",
+        incrementCount: true,
+        measurementMode: result.measurementMode,
+      });
+    }, 1200);
+  };
+
+  document.addEventListener("click", (event) => {
+    if (isChatGptSendButton(event.target)) {
+      scheduleRecord();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (isChatGptInputSubmit(event)) {
+      scheduleRecord();
+    }
+  });
 }
 
 async function init() {
@@ -475,7 +752,8 @@ async function init() {
     resetStreamingSession();
   }
 
-  const result = await calcCo2(site, 0);
+  const aiModel = detectAiModel(site);
+  const result = await calcCo2(site, 0, aiModel);
   const { badge, pct } = buildBadge(site, result, 0);
   document.body.appendChild(badge);
 
@@ -491,11 +769,24 @@ async function init() {
     dismiss();
   });
 
-  if (!site.streaming) {
+  if (!site.streaming && site.key !== "chatgpt") {
     setTimeout(dismiss, 15000);
   }
 
-  saveVisitToStorage(site.key, result.grams);
+  if (site.key === "chatgpt") {
+    bindChatGptQueryTracker(site);
+    return;
+  }
+
+  await recordUsageEvent({
+    ts: Date.now(),
+    siteKey: site.key,
+    grams: result.grams,
+    bytes: result.bytes,
+    type: site.streaming ? "stream-start" : "visit",
+    incrementCount: true,
+    measurementMode: result.measurementMode,
+  });
 
   if (site.streaming) {
     lastStreamingGrams = result.grams;

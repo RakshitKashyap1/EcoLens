@@ -26,7 +26,8 @@
   "permissions": [
     "storage",
     "alarms",
-    "webRequest"
+    "webRequest",
+    "notifications"
   ],
   "host_permissions": [
     "https://www.google.com/*",
