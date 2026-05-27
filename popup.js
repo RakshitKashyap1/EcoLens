@@ -11,64 +11,18 @@ const SITE_META = {
   youtube: { label: "YouTube", color: "#E24B4A", bg: "#1f0a0a" },
 };
 
-const DEFAULT_ACCOUNT_ID = "default";
-const DEFAULT_ACCOUNT_NAME = "Personal account";
+const {
+  DEFAULT_ACCOUNT_ID,
+  DEFAULT_ACCOUNT_NAME,
+  getDayKey,
+  buildEmptyAccountState,
+  normalizeAccountState,
+  getBackendConfig,
+  buildSyncState,
+  fmtDateTime,
+} = globalThis.EcoLensShared;
 
-function getDayKey(ts = Date.now()) {
-  const d = new Date(ts);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function buildEmptyAccountState(now = Date.now()) {
-  return {
-    profile: {
-      name: DEFAULT_ACCOUNT_NAME,
-    },
-    totalCo2: 0,
-    counts: {},
-    siteTotals: {},
-    modelTotals: {},
-    dailyTotals: {},
-    activityLog: [],
-    budget: {
-      enabled: false,
-      dailyGrams: 50,
-      alert80Date: null,
-      alert100Date: null,
-    },
-    lastSite: null,
-    lastTs: null,
-    lastResetTs: now,
-  };
-}
-
-function normalizeAccountState(account, fallbackName = DEFAULT_ACCOUNT_NAME) {
-  const base = buildEmptyAccountState();
-  const next = {
-    ...base,
-    ...account,
-  };
-
-  next.profile = {
-    ...base.profile,
-    ...(account?.profile || {}),
-  };
-  next.profile.name = next.profile.name || fallbackName;
-  next.counts = { ...base.counts, ...(account?.counts || {}) };
-  next.siteTotals = { ...base.siteTotals, ...(account?.siteTotals || {}) };
-  next.modelTotals = { ...base.modelTotals, ...(account?.modelTotals || {}) };
-  next.dailyTotals = { ...base.dailyTotals, ...(account?.dailyTotals || {}) };
-  next.activityLog = Array.isArray(account?.activityLog) ? account.activityLog : [];
-  next.budget = {
-    ...base.budget,
-    ...(account?.budget || {}),
-  };
-
-  return next;
-}
+const { buildSignedOutState, normalizeAuthState } = globalThis.EcoLensAuth;
 
 function getAccountStorage() {
   return new Promise((resolve) => {
@@ -450,6 +404,93 @@ function renderBudget(account) {
     </div>`;
 }
 
+function renderCloudState(authState, syncState) {
+  const authStatus = document.getElementById("cloud-auth-status");
+  const syncStatus = document.getElementById("sync-status");
+  const syncDetail = document.getElementById("sync-detail");
+  const codeRow = document.getElementById("auth-code-row");
+  const emailInput = document.getElementById("auth-email");
+  const startBtn = document.getElementById("auth-start-btn");
+  const verifyBtn = document.getElementById("auth-verify-btn");
+  const signOutBtn = document.getElementById("auth-signout-btn");
+  const refreshBtn = document.getElementById("auth-refresh-btn");
+  const syncBtn = document.getElementById("sync-now-btn");
+  const backendConfig = getBackendConfig();
+  const pendingEmail = syncState.pendingEmail || "";
+  const signedIn = !!authState.signedIn;
+
+  if (!backendConfig.configured) {
+    authStatus.textContent = "Cloud sync is disabled until CONFIG.API_BASE_URL is set.";
+    syncStatus.textContent = "Last cloud sync: never";
+    syncDetail.textContent = "Add your backend URL and anon key in config.js, then sign in here.";
+    codeRow.classList.remove("show");
+    startBtn.disabled = true;
+    verifyBtn.disabled = true;
+    signOutBtn.disabled = true;
+    refreshBtn.disabled = true;
+    syncBtn.disabled = true;
+    return;
+  }
+
+  if (signedIn) {
+    authStatus.textContent = `Signed in as ${authState.displayName || authState.email || "EcoLens user"}.`;
+  } else if (pendingEmail) {
+    authStatus.textContent = `Verification code sent to ${pendingEmail}.`;
+  } else {
+    authStatus.textContent = "Sign in to sync daily totals and unlock social features.";
+  }
+
+  const detailMap = {
+    syncing: "Syncing your last 30 days to the backend...",
+    success: "Cloud sync is healthy. Friends and challenges can read your latest totals.",
+    error: syncState.lastError || "The last sync failed.",
+    idle: signedIn
+      ? "Your data stays local first, then syncs in the background."
+      : "Sign in to sync daily totals, challenges, and leaderboards.",
+  };
+
+  syncStatus.textContent = `Last cloud sync: ${fmtDateTime(syncState.lastSyncAt)}`;
+  syncDetail.textContent = detailMap[syncState.status] || detailMap.idle;
+  codeRow.classList.toggle("show", !signedIn && !!pendingEmail);
+
+  if (pendingEmail && !signedIn && !emailInput.value) {
+    emailInput.value = pendingEmail;
+  }
+
+  startBtn.disabled = syncState.status === "syncing";
+  verifyBtn.disabled = syncState.status === "syncing" || !pendingEmail;
+  signOutBtn.disabled = !signedIn;
+  refreshBtn.disabled = !signedIn || syncState.status === "syncing";
+  syncBtn.disabled = !signedIn || syncState.status === "syncing";
+}
+
+async function getCloudState() {
+  const stored = await chrome.storage.local.get(["cloudAuth", "cloudSync"]);
+  return {
+    authState: normalizeAuthState(stored.cloudAuth || buildSignedOutState()),
+    syncState: buildSyncState(stored.cloudSync || {}),
+  };
+}
+
+function sendRuntimeMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      const runtimeError = chrome.runtime.lastError;
+      if (runtimeError) {
+        reject(new Error(runtimeError.message));
+        return;
+      }
+
+      if (!response?.ok) {
+        reject(new Error(response?.error || "Request failed"));
+        return;
+      }
+
+      resolve(response);
+    });
+  });
+}
+
 function wireEvents() {
   document.querySelectorAll(".dev-btn").forEach((btn) => {
     btn.addEventListener("click", () => setDevice(btn));
@@ -496,11 +537,44 @@ function wireEvents() {
     accounts[currentAccountId] = account;
     saveAccountStorage(currentAccountId, currentAccountName, accounts, boot);
   });
+
+  document.getElementById("auth-start-btn").addEventListener("click", async () => {
+    const email = document.getElementById("auth-email").value.trim();
+    if (!email) return;
+    await sendRuntimeMessage({ type: "AUTH_START", email });
+    boot();
+  });
+
+  document.getElementById("auth-verify-btn").addEventListener("click", async () => {
+    const email = document.getElementById("auth-email").value.trim();
+    const code = document.getElementById("auth-code").value.trim();
+    if (!email || !code) return;
+    await sendRuntimeMessage({ type: "AUTH_VERIFY", email, code });
+    document.getElementById("auth-code").value = "";
+    boot();
+  });
+
+  document.getElementById("auth-signout-btn").addEventListener("click", async () => {
+    await sendRuntimeMessage({ type: "AUTH_SIGN_OUT" });
+    document.getElementById("auth-code").value = "";
+    boot();
+  });
+
+  document.getElementById("auth-refresh-btn").addEventListener("click", async () => {
+    await sendRuntimeMessage({ type: "AUTH_REFRESH_PROFILE" });
+    boot();
+  });
+
+  document.getElementById("sync-now-btn").addEventListener("click", async () => {
+    await sendRuntimeMessage({ type: "SYNC_NOW", reason: "popup_manual" });
+    boot();
+  });
 }
 
 async function boot() {
   const d = await getAccountStorage();
   const account = normalizeAccountState(d.accounts[d.currentAccountId], d.currentAccountName);
+  const { authState, syncState } = await getCloudState();
 
   renderGridStrip({
     intensity: d.gridIntensity,
@@ -517,6 +591,7 @@ async function boot() {
   document.getElementById("month-chart").innerHTML = renderChart(account.dailyTotals, 30, true);
 
   renderBudget(account);
+  renderCloudState(authState, syncState);
   animateBars(document);
   restoreDevice();
 }
@@ -529,7 +604,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
     changes.modelTotals ||
     changes.gridIntensity ||
     changes.currentAccountName ||
-    changes.accounts
+    changes.accounts ||
+    changes.cloudAuth ||
+    changes.cloudSync
   )) {
     boot();
   }

@@ -28,6 +28,17 @@
     .account-input, .budget-input { flex:1; padding:7px 9px; border:1px solid #1e2e1f; border-radius:7px; background:#050a06; color:#c8e0ca; font-family:'DM Mono','Courier New',monospace; font-size:10px; }
     .account-input:focus, .budget-input:focus { outline:none; border-color:#2a4a2c; }
     .account-save, .budget-save { padding:0 10px; border:1px solid #1e2e1f; border-radius:7px; background:#0d1f0e; color:#5dbf72; font-family:'DM Mono','Courier New',monospace; font-size:9px; text-transform:uppercase; cursor:pointer; }
+    .stack { display:grid; gap:8px; }
+    .minor-text { font-size:10px; color:#7a9b7c; line-height:1.5; }
+    .muted-text { font-size:9px; color:#3a5a3c; line-height:1.5; }
+    .pill-row { display:flex; gap:6px; flex-wrap:wrap; }
+    .mini-btn { padding:6px 9px; border:1px solid #1e2e1f; border-radius:7px; background:#0d1f0e; color:#5dbf72; font-family:'DM Mono','Courier New',monospace; font-size:9px; text-transform:uppercase; cursor:pointer; }
+    .mini-btn.ghost { background:transparent; color:#7a9b7c; }
+    .mini-btn.warn { color:#E24B4A; }
+    .mini-btn[disabled] { opacity:0.45; cursor:not-allowed; }
+    .auth-code-row { display:none; }
+    .auth-code-row.show { display:flex; }
+    .sync-box { padding:9px 10px; border:1px solid #1e2e1f; border-radius:8px; background:#0d130e; }
 
     .session-card { padding:14px 15px 12px; border-bottom:1px solid #1e2e1f; }
     .sess-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:5px; }
@@ -108,6 +119,29 @@
       <input class="account-input" id="account-name" type="text" maxlength="32" placeholder="Personal account">
       <button class="account-save" id="account-save">save</button>
     </div>
+    <div class="stack" style="margin-top:10px;">
+      <div>
+        <div class="section-label" style="margin-bottom:6px;">Cloud sync</div>
+        <div class="minor-text" id="cloud-auth-status">Backend not configured yet.</div>
+      </div>
+      <div class="account-controls">
+        <input class="account-input" id="auth-email" type="email" placeholder="you@example.com">
+        <button class="account-save" id="auth-start-btn">email code</button>
+      </div>
+      <div class="account-controls auth-code-row" id="auth-code-row">
+        <input class="account-input" id="auth-code" type="text" maxlength="8" placeholder="6-digit code">
+        <button class="account-save" id="auth-verify-btn">verify</button>
+      </div>
+      <div class="sync-box">
+        <div class="minor-text" id="sync-status">Last cloud sync: never</div>
+        <div class="muted-text" id="sync-detail">Sign in to sync daily totals, challenges, and leaderboards.</div>
+      </div>
+      <div class="pill-row">
+        <button class="mini-btn" id="sync-now-btn">sync now</button>
+        <button class="mini-btn ghost" id="auth-refresh-btn">refresh profile</button>
+        <button class="mini-btn warn" id="auth-signout-btn">sign out</button>
+      </div>
+    </div>
   </div>
 
   <div id="summary-content"></div>
@@ -161,6 +195,9 @@
     <a class="src-link" href="https://theshiftproject.org" target="_blank" rel="noreferrer">sources: Shift Project - IEA</a>
   </div>
 
+  <script src="shared.js"></script>
+  <script src="auth.js"></script>
+  <script src="api.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

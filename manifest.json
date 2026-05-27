@@ -52,7 +52,8 @@
     "https://*.ytimg.com/*",
     "https://i.ytimg.com/*",
     "https://api.electricitymap.org/*",
-    "https://ipapi.co/*"
+    "https://ipapi.co/*",
+    "https://*.supabase.co/*"
   ],
   "icons": {
     "128": "icon.png"

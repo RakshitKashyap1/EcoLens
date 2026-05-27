@@ -3,6 +3,7 @@ try {
 } catch {
   console.warn("[EcoLens] config.js not found; using fallback grid defaults.");
 }
+importScripts("shared.js", "auth.js", "api.js");
 
 const GRID_FALLBACKS = {
   IN: 0.708,
@@ -18,41 +19,27 @@ const GRID_FALLBACKS = {
 
 const ELECTRICITY_MAPS_KEY = globalThis.CONFIG?.ELECTRICITY_MAPS_KEY ?? "";
 const tabBytes = {};
-const DEFAULT_ACCOUNT_ID = "default";
-const DEFAULT_ACCOUNT_NAME = "Personal account";
+const {
+  DEFAULT_ACCOUNT_ID,
+  DEFAULT_ACCOUNT_NAME,
+  CLOUD_SYNC_ALARM,
+  CLOUD_SYNC_BATCH_DAYS,
+  getDayKey,
+  buildEmptyAccountState,
+  normalizeAccountState,
+  getBackendConfig,
+  buildSyncState,
+} = globalThis.EcoLensShared;
+const {
+  AUTH_STORAGE_KEY,
+  buildSignedOutState,
+  normalizeAuthState,
+  isSessionValid,
+  buildSessionPayload,
+} = globalThis.EcoLensAuth;
+const { startEmailAuth, verifyEmailAuth, fetchProfile, syncDailyStats, syncActivityEvents } = globalThis.EcoLensApi;
 const ACTIVITY_RETENTION_DAYS = 90;
 const DAILY_RETENTION_DAYS = 180;
-
-function getDayKey(ts = Date.now()) {
-  const d = new Date(ts);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function buildEmptyAccountState(now = Date.now()) {
-  return {
-    profile: {
-      name: DEFAULT_ACCOUNT_NAME,
-    },
-    totalCo2: 0,
-    counts: {},
-    siteTotals: {},
-    modelTotals: {},
-    dailyTotals: {},
-    activityLog: [],
-    budget: {
-      enabled: false,
-      dailyGrams: 50,
-      alert80Date: null,
-      alert100Date: null,
-    },
-    lastSite: null,
-    lastTs: null,
-    lastResetTs: now,
-  };
-}
 
 function buildEmptyDailySnapshot() {
   return {
@@ -64,31 +51,6 @@ function buildEmptyDailySnapshot() {
   };
 }
 
-function normalizeAccountState(account, fallbackName = DEFAULT_ACCOUNT_NAME) {
-  const base = buildEmptyAccountState();
-  const next = {
-    ...base,
-    ...account,
-  };
-
-  next.profile = {
-    ...base.profile,
-    ...(account?.profile || {}),
-  };
-  next.profile.name = next.profile.name || fallbackName;
-
-  next.counts = { ...base.counts, ...(account?.counts || {}) };
-  next.siteTotals = { ...base.siteTotals, ...(account?.siteTotals || {}) };
-  next.modelTotals = { ...base.modelTotals, ...(account?.modelTotals || {}) };
-  next.dailyTotals = { ...base.dailyTotals, ...(account?.dailyTotals || {}) };
-  next.activityLog = Array.isArray(account?.activityLog) ? account.activityLog : [];
-  next.budget = {
-    ...base.budget,
-    ...(account?.budget || {}),
-  };
-
-  return next;
-}
 
 function resetAccountDay(account, now = Date.now()) {
   account.totalCo2 = 0;
@@ -162,6 +124,32 @@ async function getAccountStorage() {
   };
 }
 
+async function getCloudStorage() {
+  const stored = await chrome.storage.local.get([AUTH_STORAGE_KEY, "cloudSync"]);
+  return {
+    authState: normalizeAuthState(stored[AUTH_STORAGE_KEY] || buildSignedOutState()),
+    syncState: buildSyncState(stored.cloudSync || {}),
+  };
+}
+
+async function saveCloudStorage(authState, syncState) {
+  await chrome.storage.local.set({
+    [AUTH_STORAGE_KEY]: normalizeAuthState(authState),
+    cloudSync: buildSyncState(syncState),
+  });
+}
+
+async function updateSyncState(patch) {
+  const { authState, syncState } = await getCloudStorage();
+  const nextSyncState = buildSyncState({
+    ...syncState,
+    ...patch,
+    configured: getBackendConfig().configured,
+  });
+  await saveCloudStorage(authState, nextSyncState);
+  return nextSyncState;
+}
+
 async function saveAccountStorage(currentAccountId, currentAccountName, accounts) {
   const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
   accounts[currentAccountId] = account;
@@ -178,6 +166,169 @@ async function saveAccountStorage(currentAccountId, currentAccountName, accounts
     lastTs: account.lastTs,
     lastResetTs: account.lastResetTs,
   });
+}
+
+function buildSyncPayload(accountId, account) {
+  const now = Date.now();
+  const cutoffKey = getDayKey(now - (CLOUD_SYNC_BATCH_DAYS * 24 * 60 * 60 * 1000));
+  const dailyStats = Object.entries(account.dailyTotals || {})
+    .filter(([dayKey]) => dayKey >= cutoffKey)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([dayKey, snapshot]) => ({
+      accountId,
+      day: dayKey,
+      totalCo2: snapshot.totalCo2 || 0,
+      bySite: snapshot.bySite || {},
+      byModel: snapshot.byModel || {},
+      counts: snapshot.counts || {},
+      eventCount: snapshot.eventCount || 0,
+    }));
+
+  const activityCutoff = now - (CLOUD_SYNC_BATCH_DAYS * 24 * 60 * 60 * 1000);
+  const events = (account.activityLog || [])
+    .filter((event) => (event?.ts || 0) >= activityCutoff)
+    .map((event) => ({
+      accountId,
+      ts: event.ts,
+      siteKey: event.siteKey,
+      grams: event.grams,
+      bytes: event.bytes || 0,
+      provider: event.provider || null,
+      modelId: event.modelId || null,
+      modelLabel: event.modelLabel || null,
+      measurementMode: event.measurementMode || "estimated",
+      type: event.type || "visit",
+    }));
+
+  return { dailyStats, events };
+}
+
+async function syncCurrentAccount(reason = "background") {
+  const backendConfig = getBackendConfig();
+  const { authState, syncState } = await getCloudStorage();
+
+  if (!backendConfig.configured) {
+    await updateSyncState({
+      status: "idle",
+      lastError: null,
+      configured: false,
+    });
+    return { ok: true, skipped: "not_configured" };
+  }
+
+  if (!isSessionValid(authState)) {
+    await updateSyncState({
+      status: "idle",
+      lastError: null,
+      configured: true,
+    });
+    return { ok: true, skipped: "signed_out" };
+  }
+
+  await saveCloudStorage(authState, buildSyncState({
+    ...syncState,
+    status: "syncing",
+    lastError: null,
+    configured: true,
+  }));
+
+  try {
+    const { currentAccountId, currentAccountName, accounts } = await getAccountStorage();
+    const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
+    const payload = buildSyncPayload(currentAccountId, account);
+
+    await syncDailyStats({
+      reason,
+      accountName: account.profile.name,
+      dailyStats: payload.dailyStats,
+    }, authState);
+
+    await syncActivityEvents({
+      reason,
+      accountName: account.profile.name,
+      events: payload.events,
+    }, authState);
+
+    const me = await fetchProfile(authState).catch(() => null);
+    const nextAuthState = me?.user
+      ? normalizeAuthState({
+          ...authState,
+          displayName: me.user.displayName || me.user.display_name || authState.displayName,
+          email: me.user.email || authState.email,
+        })
+      : authState;
+
+    await saveCloudStorage(nextAuthState, {
+      ...syncState,
+      status: "success",
+      configured: true,
+      lastSyncAt: Date.now(),
+      lastError: null,
+      pendingEmail: null,
+    });
+
+    return { ok: true };
+  } catch (error) {
+    await saveCloudStorage(authState, {
+      ...syncState,
+      status: "error",
+      configured: backendConfig.configured,
+      lastError: error.message,
+    });
+    return { ok: false, error: error.message };
+  }
+}
+
+async function startCloudAuth(email) {
+  const { authState, syncState } = await getCloudStorage();
+  await startEmailAuth(email);
+  await saveCloudStorage(authState, {
+    ...syncState,
+    status: "idle",
+    configured: getBackendConfig().configured,
+    pendingEmail: email,
+    lastError: null,
+  });
+  return { ok: true };
+}
+
+async function verifyCloudAuth(email, code) {
+  const session = await verifyEmailAuth(email, code);
+  const nextAuthState = buildSessionPayload(session, email);
+  await saveCloudStorage(nextAuthState, {
+    status: "idle",
+    configured: getBackendConfig().configured,
+    pendingEmail: null,
+    lastError: null,
+    lastSyncAt: null,
+  });
+  return syncCurrentAccount("auth_verify");
+}
+
+async function clearCloudAuth() {
+  await saveCloudStorage(buildSignedOutState(), {
+    status: "idle",
+    configured: getBackendConfig().configured,
+    pendingEmail: null,
+    lastError: null,
+  });
+  return { ok: true };
+}
+
+async function refreshCloudProfile() {
+  const { authState, syncState } = await getCloudStorage();
+  if (!isSessionValid(authState)) {
+    return { ok: false, error: "You are not signed in." };
+  }
+
+  const me = await fetchProfile(authState);
+  const nextAuthState = normalizeAuthState({
+    ...authState,
+    displayName: me?.user?.displayName || me?.user?.display_name || authState.displayName,
+    email: me?.user?.email || authState.email,
+  });
+  await saveCloudStorage(nextAuthState, syncState);
+  return { ok: true };
 }
 
 async function setFallbackGridIntensity() {
@@ -324,6 +475,41 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     return true;
   }
 
+  if (msg.type === "AUTH_START") {
+    startCloudAuth(msg.email)
+      .then(reply)
+      .catch((error) => reply({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (msg.type === "AUTH_VERIFY") {
+    verifyCloudAuth(msg.email, msg.code)
+      .then(reply)
+      .catch((error) => reply({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (msg.type === "AUTH_SIGN_OUT") {
+    clearCloudAuth()
+      .then(reply)
+      .catch((error) => reply({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (msg.type === "AUTH_REFRESH_PROFILE") {
+    refreshCloudProfile()
+      .then(reply)
+      .catch((error) => reply({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (msg.type === "SYNC_NOW") {
+    syncCurrentAccount(msg.reason || "manual")
+      .then(reply)
+      .catch((error) => reply({ ok: false, error: error.message }));
+    return true;
+  }
+
   return false;
 });
 
@@ -332,6 +518,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (!(changes.accounts || changes.totalCo2 || changes.currentAccountId)) return;
 
   maybeResetDaily().then(maybeSendBudgetAlert);
+  syncCurrentAccount("storage_change");
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -342,18 +529,22 @@ chrome.runtime.onInstalled.addListener(async () => {
   const { currentAccountId, currentAccountName, accounts } = await getAccountStorage();
   accounts[currentAccountId] = normalizeAccountState(accounts[currentAccountId], currentAccountName);
   await saveAccountStorage(currentAccountId, currentAccountName, accounts);
+  await updateSyncState({});
   await fetchGridIntensity();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await maybeResetDaily();
   await pruneAllAccounts();
+  await updateSyncState({});
   await fetchGridIntensity();
   await maybeSendBudgetAlert();
+  await syncCurrentAccount("startup");
 });
 
 chrome.alarms.create("refreshGrid", { periodInMinutes: 120 });
 chrome.alarms.create("dailyMaintenance", { periodInMinutes: 60 });
+chrome.alarms.create(CLOUD_SYNC_ALARM, { periodInMinutes: 30 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "refreshGrid") {
     fetchGridIntensity();
@@ -362,5 +553,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
   if (alarm.name === "dailyMaintenance") {
     maybeResetDaily().then(pruneAllAccounts).then(maybeSendBudgetAlert);
+    return;
+  }
+
+  if (alarm.name === CLOUD_SYNC_ALARM) {
+    syncCurrentAccount("alarm");
   }
 });
