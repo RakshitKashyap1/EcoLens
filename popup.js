@@ -7,16 +7,22 @@ const SITE_META = {
   chatgpt: { label: "ChatGPT", color: "#EF9F27", bg: "#1f180a" },
   claude: { label: "Claude", color: "#D97706", bg: "#211406" },
   gemini: { label: "Gemini", color: "#4F86F7", bg: "#0a1530" },
+  perplexity: { label: "Perplexity", color: "#4FD1C5", bg: "#081c1a" },
   netflix: { label: "Netflix", color: "#E24B4A", bg: "#1f0a0a" },
   youtube: { label: "YouTube", color: "#E24B4A", bg: "#1f0a0a" },
+  spotify: { label: "Spotify", color: "#1ED760", bg: "#061a0e" },
 };
 
 const {
   DEFAULT_ACCOUNT_ID,
   DEFAULT_ACCOUNT_NAME,
+  GRID_SOURCES,
+  DEVICE_SOURCES,
+  MODEL_CONFIDENCE,
   getDayKey,
-  buildEmptyAccountState,
   normalizeAccountState,
+  normalizeUsageEvent,
+  normalizeBreakdownTotals,
   getBackendConfig,
   buildSyncState,
   fmtDateTime,
@@ -73,7 +79,7 @@ function getAccountStorage() {
           accounts,
           gridIntensity: stored.gridIntensity ?? 0.35 / 1000,
           gridZone: stored.gridZone ?? "-",
-          gridSource: stored.gridSource ?? "default",
+          gridSource: stored.gridSource ?? GRID_SOURCES.DEFAULT,
         });
       }
     );
@@ -109,6 +115,12 @@ function fmt(g) {
   return `${(g / 1000).toFixed(2)} kg`;
 }
 
+function fmtKwh(kwh) {
+  if (kwh <= 0) return "0 kWh";
+  if (kwh < 0.01) return `${kwh.toFixed(4)} kWh`;
+  return `${kwh.toFixed(3)} kWh`;
+}
+
 function co2Color(g) {
   if (g < 5) return "";
   if (g < 30) return "amber";
@@ -124,6 +136,28 @@ function getEquiv(g) {
   return `${(g / 36).toFixed(1)} hrs of Netflix`;
 }
 
+function labelGridSource(source) {
+  return source === GRID_SOURCES.LIVE ? "live grid" : "regional average";
+}
+
+function labelMeasurementMode(mode) {
+  return mode === "measured" ? "measured" : "estimated";
+}
+
+function labelModelConfidence(confidence) {
+  return confidence === MODEL_CONFIDENCE.DETECTED ? "model detected" : "model default";
+}
+
+function labelDeviceSource(source) {
+  return source === DEVICE_SOURCES.BATTERY_HEURISTIC ? "battery heuristic" : "selected device";
+}
+
+function formatBytes(bytes) {
+  if (bytes > 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  if (bytes > 1000) return `${(bytes / 1000).toFixed(0)} KB`;
+  return "baseline estimate";
+}
+
 function renderGridStrip({ intensity, zone, source }) {
   const gPerKwh = (intensity * 1000).toFixed(0);
   const dot = document.getElementById("grid-dot");
@@ -136,7 +170,60 @@ function renderGridStrip({ intensity, zone, source }) {
 
   if (dot) dot.style.background = dotColor;
   if (val) val.textContent = `${gPerKwh} g/kWh - ${zone}`;
-  if (src) src.textContent = source === "live" ? "live" : "regional avg";
+  if (src) src.textContent = labelGridSource(source);
+}
+
+function getPastDayKeys(numDays) {
+  const out = [];
+  for (let i = numDays - 1; i >= 0; i -= 1) {
+    out.push(getDayKey(Date.now() - (i * 24 * 60 * 60 * 1000)));
+  }
+  return out;
+}
+
+function labelForDayKey(dayKey, compact = false) {
+  const [, month, day] = dayKey.split("-");
+  return compact ? day : `${month}/${day}`;
+}
+
+function buildWeeklyInsight(account) {
+  const keys = getPastDayKeys(14);
+  const previous = keys.slice(0, 7).reduce((sum, key) => sum + (account.dailyTotals[key]?.totalCo2 || 0), 0);
+  const current = keys.slice(7).reduce((sum, key) => sum + (account.dailyTotals[key]?.totalCo2 || 0), 0);
+  const diff = current - previous;
+  const direction = diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+  return { current, previous, diff, direction };
+}
+
+function getTopEmitter(account) {
+  return Object.entries(account.siteTotals || {})
+    .sort((a, b) => b[1] - a[1])[0] || null;
+}
+
+function renderInsights(account) {
+  const weekly = buildWeeklyInsight(account);
+  const topEmitter = getTopEmitter(account);
+  const topMeta = topEmitter ? SITE_META[topEmitter[0]] : null;
+  const deltaText = weekly.direction === "flat"
+    ? "You matched last week."
+    : weekly.direction === "up"
+    ? `${fmt(Math.abs(weekly.diff))} higher than the previous 7 days.`
+    : `${fmt(Math.abs(weekly.diff))} lower than the previous 7 days.`;
+
+  return `
+    <div class="stack">
+      <div class="insight-card">
+        <div class="insight-label">7-day delta</div>
+        <div class="insight-value">${fmt(weekly.current)}</div>
+        <div class="insight-text">${deltaText}</div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-label">Top emitter</div>
+        <div class="insight-value">${topMeta ? topMeta.label : "None yet"}</div>
+        <div class="insight-text">${topEmitter ? `${fmt(topEmitter[1])} today` : "Browse or stream to start tracking."}</div>
+      </div>
+    </div>
+  `;
 }
 
 function renderSummary(account) {
@@ -153,7 +240,7 @@ function renderSummary(account) {
     return `
       <div class="site-row" style="opacity:${hits > 0 || grams > 0 ? 1 : 0.28}">
         <div class="site-icon" style="background:${meta.bg};color:${meta.color}">
-          ${key === "google" ? "G" : key === "chatgpt" ? "AI" : key === "claude" ? "C" : key === "gemini" ? "GM" : key === "netflix" ? "N" : "YT"}
+          ${key === "google" ? "G" : key === "chatgpt" ? "AI" : key === "claude" ? "C" : key === "gemini" ? "GM" : key === "perplexity" ? "PX" : key === "netflix" ? "N" : key === "youtube" ? "YT" : "SP"}
         </div>
         <div class="row-main">
           <div class="row-head">
@@ -188,47 +275,58 @@ function renderEmpty() {
       <div class="empty-msg">
         No activity yet.<br>
         Visit <span>chatgpt.com</span>, <span>claude.ai</span>,<br>
-        <span>gemini.google.com</span>, or <span>netflix.com</span>.
+        <span>gemini.google.com</span>, <span>perplexity.ai</span>,<br>
+        <span>spotify.com</span>, or <span>netflix.com</span>.
       </div>
     </div>`;
 }
 
-function animateBars(root = document) {
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      root.querySelectorAll(".bar-fill[data-pct]").forEach((el) => {
-        el.style.width = `${el.dataset.pct}%`;
-      });
-    }, 80);
-  });
+function renderTrustBreakdown(account) {
+  const today = account.dailyTotals[getDayKey()] || {};
+  const breakdown = normalizeBreakdownTotals(today.breakdownTotals);
+
+  return `
+    <div class="stack">
+      <div class="trust-row">
+        <span>Measured network</span>
+        <strong>${fmtKwh(breakdown.network)}</strong>
+      </div>
+      <div class="trust-row">
+        <span>Baseline estimate</span>
+        <strong>${fmtKwh(breakdown.baseline)}</strong>
+      </div>
+      <div class="trust-row">
+        <span>Device energy</span>
+        <strong>${fmtKwh(breakdown.device)}</strong>
+      </div>
+      <div class="muted-text">Totals are local estimates using transfer size, fallback baselines, device energy, and your current grid intensity.</div>
+    </div>
+  `;
 }
 
-function setDevice(btn) {
-  document.querySelectorAll(".dev-btn").forEach((b) => b.classList.remove("sel"));
-  btn.classList.add("sel");
-  chrome.storage.local.set({ deviceType: btn.dataset.device });
-}
-
-function restoreDevice() {
-  chrome.storage.local.get("deviceType", ({ deviceType }) => {
-    const type = deviceType || "laptop";
-    document.querySelectorAll(".dev-btn").forEach((b) => {
-      b.classList.toggle("sel", b.dataset.device === type);
-    });
-  });
-}
-
-function getPastDayKeys(numDays) {
-  const out = [];
-  for (let i = numDays - 1; i >= 0; i -= 1) {
-    out.push(getDayKey(Date.now() - (i * 24 * 60 * 60 * 1000)));
+function renderLatestActivity(account) {
+  const rawEvent = (account.activityLog || []).slice(-1)[0];
+  if (!rawEvent) {
+    return `<div class="empty-msg">No tracked activity yet.</div>`;
   }
-  return out;
-}
 
-function labelForDayKey(dayKey, compact = false) {
-  const [, month, day] = dayKey.split("-");
-  return compact ? day : `${month}/${day}`;
+  const event = normalizeUsageEvent(rawEvent);
+  const site = SITE_META[event.siteKey] || { label: event.siteKey, color: "#7a9b7c" };
+  const modelLine = event.modelLabel ? `<div class="muted-text">Model: ${event.modelLabel} · ${labelModelConfidence(event.modelConfidence)}</div>` : "";
+
+  return `
+    <div class="stack">
+      <div class="minor-text"><strong style="color:${site.color}">${site.label}</strong> · ${fmt(event.grams)} · ${new Date(event.ts).toLocaleTimeString()}</div>
+      <div class="pill-row">
+        <span class="mini-pill">${labelMeasurementMode(event.measurementMode)}</span>
+        <span class="mini-pill">${labelGridSource(event.gridSource)}</span>
+        <span class="mini-pill">${labelDeviceSource(event.deviceSource)}</span>
+      </div>
+      <div class="muted-text">Grid zone: ${event.gridZone} · Data: ${formatBytes(event.networkBytesUsed)}</div>
+      <div class="muted-text">Network ${fmtKwh(event.networkKwhUsed)} · Baseline ${fmtKwh(event.baselineKwhUsed)} · Device ${fmtKwh(event.deviceKwhUsed)}</div>
+      ${modelLine}
+    </div>
+  `;
 }
 
 function renderChart(dailyTotals, numDays, monthStyle = false) {
@@ -292,82 +390,56 @@ function renderModelBreakdown(modelTotals) {
 function buildSuggestions(account) {
   const suggestions = [];
   const total = account.totalCo2 || 0;
-  const chatgptTotal = account.siteTotals.chatgpt || 0;
-  const claudeTotal = account.siteTotals.claude || 0;
-  const geminiTotal = account.siteTotals.gemini || 0;
-  const googleTotal = account.siteTotals.google || 0;
-  const youtubeTotal = account.siteTotals.youtube || 0;
-  const netflixTotal = account.siteTotals.netflix || 0;
+  const aiKeys = ["chatgpt", "claude", "gemini", "perplexity"];
+  const streamKeys = ["youtube", "netflix", "spotify"];
   const modelTotals = account.modelTotals || {};
 
-  const heavyModels = Object.entries(modelTotals)
-    .sort((a, b) => b[1] - a[1]);
-
+  const heavyModels = Object.entries(modelTotals).sort((a, b) => b[1] - a[1]);
   const topModel = heavyModels[0];
   if (topModel) {
     const [modelId, grams] = topModel;
-    if (["o3", "gpt-4.1", "gpt-4o", "claude-opus", "claude-sonnet", "gemini-ultra", "gemini-pro", "gemini-2.5-pro"].includes(modelId) && grams >= 2) {
-      const lighter =
-        modelId === "o3" ? "o4-mini" :
-        modelId === "gpt-4.1" ? "gpt-4.1 mini" :
-        modelId === "gpt-4o" ? "gpt-4o mini" :
-        modelId === "claude-opus" ? "Claude Haiku" :
-        modelId === "claude-sonnet" ? "Claude Haiku" :
-        "Gemini Flash";
+    if (["o3", "gpt-4.1", "gpt-4o", "claude-opus", "claude-sonnet", "gemini-ultra", "gemini-pro", "gemini-2.5-pro", "perplexity-reasoning"].includes(modelId) && grams >= 2) {
       suggestions.push({
         title: "Use a lighter AI model first",
-        text: `${modelId} produced ${fmt(grams)} today. For drafting, summaries, and search-style prompts, try ${lighter} first and only switch up when the answer quality really needs it.`,
+        text: `${modelId} produced ${fmt(grams)} today. Use a lighter model for drafts or quick lookups, then switch up only when quality needs it.`,
       });
     }
   }
 
-  if (chatgptTotal >= 5 && (account.counts.chatgpt || 0) >= 5) {
+  const aiTotal = aiKeys.reduce((sum, key) => sum + (account.siteTotals[key] || 0), 0);
+  if (aiTotal >= 5) {
     suggestions.push({
       title: "Batch AI prompts",
-      text: `ChatGPT accounted for ${fmt(chatgptTotal)} today across ${account.counts.chatgpt} prompts. Combining follow-up questions into one prompt can reduce repeated model spins and lower the total.`,
+      text: `AI assistants contributed ${fmt(aiTotal)} today. Combining follow-ups into one prompt can reduce repeated model spins.`,
     });
   }
 
-  if (claudeTotal >= 3 && (account.counts.claude || 0) >= 3) {
-    suggestions.push({
-      title: "Use Claude Haiku for lighter tasks",
-      text: `Claude contributed ${fmt(claudeTotal)} today. For simpler drafting or classification work, Claude Haiku is usually a better first step than jumping straight to Sonnet or Opus.`,
-    });
-  }
-
-  if (geminiTotal >= 3 && (account.counts.gemini || 0) >= 3) {
-    suggestions.push({
-      title: "Try Gemini Flash first",
-      text: `Gemini contributed ${fmt(geminiTotal)} today. Flash-style models are often enough for quick brainstorming and can keep your AI footprint lower than heavier Gemini variants.`,
-    });
-  }
-
-  if ((youtubeTotal + netflixTotal) >= 15) {
-    const streamTotal = youtubeTotal + netflixTotal;
+  const streamTotal = streamKeys.reduce((sum, key) => sum + (account.siteTotals[key] || 0), 0);
+  if (streamTotal >= 15) {
     suggestions.push({
       title: "Trim streaming impact",
-      text: `Streaming contributed ${fmt(streamTotal)} today. Lower resolution, shorter autoplay sessions, or switching long background videos to audio can meaningfully cut digital carbon use.`,
+      text: `Streaming contributed ${fmt(streamTotal)} today. Lower resolution, shorter autoplay sessions, or audio-first listening can meaningfully cut the total.`,
     });
   }
 
-  if (googleTotal >= 1 && (chatgptTotal + claudeTotal + geminiTotal) >= 1) {
+  if ((account.siteTotals.google || 0) >= 1 && aiTotal >= 1) {
     suggestions.push({
       title: "Match the tool to the task",
-      text: `You used both search and AI today. Quick factual lookups are usually cheaper in search, while synthesis-heavy tasks justify AI better. Picking the lighter tool first can keep totals down.`,
+      text: "Quick factual lookups are usually cheaper in search, while synthesis-heavy tasks justify AI better. Picking the lighter tool first helps.",
     });
   }
 
   if (total >= 25) {
     suggestions.push({
       title: "Set a tighter budget",
-      text: `You are at ${fmt(total)} today. If that feels high, try setting tomorrow's budget just below that level so EcoLens can nudge you before the heaviest usage happens.`,
+      text: `You are at ${fmt(total)} today. Set tomorrow's budget just below that level so EcoLens can warn you earlier.`,
     });
   }
 
   if (!suggestions.length) {
     suggestions.push({
       title: "You're in a good range",
-      text: "Today's activity is still light. Keep using lighter models for simple prompts and reserve heavier tools for work that actually benefits from them.",
+      text: "Today's activity is still light. Keep simpler tasks on lighter models and reserve heavier tools for work that benefits from them.",
     });
   }
 
@@ -491,6 +563,31 @@ function sendRuntimeMessage(message) {
   });
 }
 
+function animateBars(root = document) {
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      root.querySelectorAll(".bar-fill[data-pct]").forEach((el) => {
+        el.style.width = `${el.dataset.pct}%`;
+      });
+    }, 80);
+  });
+}
+
+function setDevice(btn) {
+  document.querySelectorAll(".dev-btn").forEach((b) => b.classList.remove("sel"));
+  btn.classList.add("sel");
+  chrome.storage.local.set({ deviceType: btn.dataset.device });
+}
+
+function restoreDevice() {
+  chrome.storage.local.get("deviceType", ({ deviceType }) => {
+    const type = deviceType || "laptop";
+    document.querySelectorAll(".dev-btn").forEach((b) => {
+      b.classList.toggle("sel", b.dataset.device === type);
+    });
+  });
+}
+
 function wireEvents() {
   document.querySelectorAll(".dev-btn").forEach((btn) => {
     btn.addEventListener("click", () => setDevice(btn));
@@ -585,6 +682,9 @@ async function boot() {
   document.getElementById("account-name").value = d.currentAccountName;
   document.getElementById("summary-content").innerHTML =
     account.totalCo2 > 0 ? renderSummary(account) : renderEmpty();
+  document.getElementById("weekly-insights").innerHTML = renderInsights(account);
+  document.getElementById("trust-breakdown").innerHTML = renderTrustBreakdown(account);
+  document.getElementById("latest-activity").innerHTML = renderLatestActivity(account);
   document.getElementById("model-breakdown").innerHTML = renderModelBreakdown(account.modelTotals);
   document.getElementById("suggestions").innerHTML = renderSuggestions(account);
   document.getElementById("week-chart").innerHTML = renderChart(account.dailyTotals, 7, false);

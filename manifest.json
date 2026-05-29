@@ -18,10 +18,12 @@
         "https://chatgpt.com/*",
         "https://claude.ai/*",
         "https://gemini.google.com/*",
+        "https://www.perplexity.ai/*",
         "https://www.netflix.com/watch*",
-        "https://www.youtube.com/watch*"
+        "https://www.youtube.com/watch*",
+        "https://open.spotify.com/*"
       ],
-      "js": ["content.js"],
+      "js": ["shared.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
@@ -43,6 +45,8 @@
     "https://*.anthropic.com/*",
     "https://gemini.google.com/*",
     "https://*.googleapis.com/*",
+    "https://www.perplexity.ai/*",
+    "https://*.perplexity.ai/*",
     "https://www.netflix.com/*",
     "https://*.netflix.com/*",
     "https://*.nflximg.net/*",
@@ -51,6 +55,8 @@
     "https://*.googlevideo.com/*",
     "https://*.ytimg.com/*",
     "https://i.ytimg.com/*",
+    "https://open.spotify.com/*",
+    "https://*.scdn.co/*",
     "https://api.electricitymap.org/*",
     "https://ipapi.co/*",
     "https://*.supabase.co/*"

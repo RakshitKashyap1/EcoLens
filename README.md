@@ -19,16 +19,18 @@ EcoLens currently injects tracking on:
 - ChatGPT
 - Claude
 - Gemini
+- Perplexity
 - Netflix
 - YouTube
+- Spotify
 
 ## Core Features
 
 ### Real-time tracking
 
 - Google searches are counted per visit/query.
-- ChatGPT, Claude, and Gemini prompts are tracked when you submit a message.
-- Netflix and YouTube sessions update continuously while media is visible and playing in the tab.
+- ChatGPT, Claude, Gemini, and Perplexity prompts are tracked when you submit a message.
+- Netflix, YouTube, and Spotify sessions update continuously while media is visible and playing in the tab.
 
 ### Grid-aware estimates
 
@@ -50,8 +52,22 @@ EcoLens attempts heuristic model detection for:
 - ChatGPT: `GPT-3.5`, `GPT-4o mini`, `GPT-4.1 mini`, `o4-mini`, `GPT-4o`, `GPT-4.1`, `o3`
 - Claude: `Haiku`, `Sonnet`, `Opus`
 - Gemini: `Flash`, `Pro`, `Ultra`, `Gemini 2.5 Pro`
+- Perplexity: `Sonar`, `Pro`, `Reasoning`
 
 If no model can be identified, EcoLens falls back to a provider default estimate.
+
+### Trust and methodology layer
+
+EcoLens stores lightweight provenance for each tracked event so you can inspect:
+
+- `measurementMode`: `measured` or `estimated`
+- `gridSource`: `live`, `fallback`, or `default`
+- `gridZone`: the current regional zone used for carbon intensity
+- `deviceSource`: battery heuristic vs selected device profile
+- `modelConfidence`: whether the AI model was detected or defaulted
+- `networkBytesUsed`, `networkKwhUsed`, `baselineKwhUsed`, `deviceKwhUsed`, `totalKwhUsed`
+
+The popup uses this data to explain where the estimate came from and whether it leaned on measured transfer size or baseline fallback logic.
 
 ### In-page badge
 
@@ -71,7 +87,10 @@ The injected badge shows:
 The popup includes:
 
 - Today's total emissions
+- Weekly delta and top-emitter insights
 - Per-platform breakdown
+- Methodology breakdown for measured network, baseline estimate, and device energy
+- Latest activity with trust labels and provenance details
 - Model breakdown
 - Greener suggestions based on recent usage
 - 7-day and 30-day charts
@@ -127,6 +146,7 @@ The extension then converts energy use into grams of CO2 and stores the result p
 - `shared.js`: shared account, sync, and date helpers
 - `auth.js`: auth state helpers
 - `api.js`: backend API client for auth and sync
+- `tests/run-tests.js`: lightweight Node-based logic verification
 - `config.example.js`: sample config for external services
 - `config.js`: local config file loaded by the extension
 
@@ -141,6 +161,16 @@ The extension then converts energy use into grams of CO2 and stores the result p
 7. Select the project folder.
 
 There is no build step. This extension runs directly from the source files.
+
+## Testing
+
+Run the lightweight logic checks with:
+
+```powershell
+node tests/run-tests.js
+```
+
+These tests cover shared account and event normalization, daily aggregation, retention pruning, and model detection fallback behavior.
 
 ## Configuration
 
@@ -178,8 +208,18 @@ Optional in the current client logic, but typically needed for authenticated bac
 - Emissions are estimates, not direct measurements.
 - AI model detection is heuristic and depends on visible UI labels.
 - Streaming estimates are strongest on the specifically supported watch pages.
+- Spotify support currently treats active playback as a session estimate rather than a media-quality-aware measurement.
 - Cloud sync UI is present, but backend routes must exist and match the expected API contract.
 - The extension targets Chromium-based browsers that support Manifest V3.
+
+## Manual Verification Checklist
+
+- Load the unpacked extension in Chrome and confirm the popup opens without console errors.
+- Visit Google Search and confirm a single visit event appears with trust labels and methodology breakdown.
+- Visit ChatGPT, Claude, Gemini, and Perplexity, send a prompt, and confirm the latest activity shows model status plus measured or estimated labeling.
+- Visit Netflix, YouTube, or Spotify and confirm the in-page badge updates over time without rapidly overcounting.
+- Remove `ELECTRICITY_MAPS_KEY` and confirm the popup shows `regional average`.
+- Re-open the popup after existing usage is stored and confirm older records still render even if they lack the new provenance fields.
 
 ## License
 

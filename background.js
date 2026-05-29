@@ -24,11 +24,17 @@ const {
   DEFAULT_ACCOUNT_NAME,
   CLOUD_SYNC_ALARM,
   CLOUD_SYNC_BATCH_DAYS,
+  ACTIVITY_RETENTION_DAYS,
+  DAILY_RETENTION_DAYS,
+  GRID_SOURCES,
   getDayKey,
-  buildEmptyAccountState,
   normalizeAccountState,
+  normalizeUsageEvent,
+  normalizeDailySnapshot,
   getBackendConfig,
   buildSyncState,
+  resetAccountDay,
+  pruneAccountHistory,
 } = globalThis.EcoLensShared;
 const {
   AUTH_STORAGE_KEY,
@@ -38,8 +44,6 @@ const {
   buildSessionPayload,
 } = globalThis.EcoLensAuth;
 const { startEmailAuth, verifyEmailAuth, fetchProfile, syncDailyStats, syncActivityEvents } = globalThis.EcoLensApi;
-const ACTIVITY_RETENTION_DAYS = 90;
-const DAILY_RETENTION_DAYS = 180;
 
 function buildEmptyDailySnapshot() {
   return {
@@ -48,35 +52,12 @@ function buildEmptyDailySnapshot() {
     byModel: {},
     counts: {},
     eventCount: 0,
+    breakdownTotals: {
+      network: 0,
+      baseline: 0,
+      device: 0,
+    },
   };
-}
-
-
-function resetAccountDay(account, now = Date.now()) {
-  account.totalCo2 = 0;
-  account.counts = {};
-  account.siteTotals = {};
-  account.modelTotals = {};
-  account.lastSite = null;
-  account.lastTs = null;
-  account.lastResetTs = now;
-  account.budget.alert80Date = null;
-  account.budget.alert100Date = null;
-  return account;
-}
-
-function pruneAccountHistory(account, now = Date.now()) {
-  const activityCutoff = now - (ACTIVITY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  account.activityLog = account.activityLog.filter((event) => (event?.ts || 0) >= activityCutoff);
-
-  const dailyCutoffKey = getDayKey(now - (DAILY_RETENTION_DAYS * 24 * 60 * 60 * 1000));
-  Object.keys(account.dailyTotals).forEach((key) => {
-    if (key < dailyCutoffKey) {
-      delete account.dailyTotals[key];
-    }
-  });
-
-  return account;
 }
 
 async function getAccountStorage() {
@@ -174,31 +155,47 @@ function buildSyncPayload(accountId, account) {
   const dailyStats = Object.entries(account.dailyTotals || {})
     .filter(([dayKey]) => dayKey >= cutoffKey)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([dayKey, snapshot]) => ({
-      accountId,
-      day: dayKey,
-      totalCo2: snapshot.totalCo2 || 0,
-      bySite: snapshot.bySite || {},
-      byModel: snapshot.byModel || {},
-      counts: snapshot.counts || {},
-      eventCount: snapshot.eventCount || 0,
-    }));
+    .map(([dayKey, snapshot]) => {
+      const normalized = normalizeDailySnapshot(snapshot);
+      return {
+        accountId,
+        day: dayKey,
+        totalCo2: normalized.totalCo2 || 0,
+        bySite: normalized.bySite || {},
+        byModel: normalized.byModel || {},
+        counts: normalized.counts || {},
+        eventCount: normalized.eventCount || 0,
+        breakdownTotals: normalized.breakdownTotals || buildEmptyDailySnapshot().breakdownTotals,
+      };
+    });
 
   const activityCutoff = now - (CLOUD_SYNC_BATCH_DAYS * 24 * 60 * 60 * 1000);
   const events = (account.activityLog || [])
     .filter((event) => (event?.ts || 0) >= activityCutoff)
-    .map((event) => ({
-      accountId,
-      ts: event.ts,
-      siteKey: event.siteKey,
-      grams: event.grams,
-      bytes: event.bytes || 0,
-      provider: event.provider || null,
-      modelId: event.modelId || null,
-      modelLabel: event.modelLabel || null,
-      measurementMode: event.measurementMode || "estimated",
-      type: event.type || "visit",
-    }));
+    .map((event) => {
+      const normalized = normalizeUsageEvent(event);
+      return {
+        accountId,
+        ts: normalized.ts,
+        siteKey: normalized.siteKey,
+        grams: normalized.grams,
+        bytes: normalized.bytes,
+        provider: normalized.provider,
+        modelId: normalized.modelId,
+        modelLabel: normalized.modelLabel,
+        measurementMode: normalized.measurementMode,
+        gridSource: normalized.gridSource,
+        gridZone: normalized.gridZone,
+        deviceSource: normalized.deviceSource,
+        modelConfidence: normalized.modelConfidence,
+        networkBytesUsed: normalized.networkBytesUsed,
+        networkKwhUsed: normalized.networkKwhUsed,
+        baselineKwhUsed: normalized.baselineKwhUsed,
+        deviceKwhUsed: normalized.deviceKwhUsed,
+        totalKwhUsed: normalized.totalKwhUsed,
+        type: normalized.type,
+      };
+    });
 
   return { dailyStats, events };
 }
@@ -336,13 +333,13 @@ async function setFallbackGridIntensity() {
     const geoRes = await fetch("https://ipapi.co/country/");
     const zone = (await geoRes.text()).trim();
     const intensity = (GRID_FALLBACKS[zone] ?? GRID_FALLBACKS.DEFAULT) / 1000;
-    await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: "fallback" });
+    await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: GRID_SOURCES.FALLBACK });
     console.log(`[EcoLens] Fallback grid: ${zone} = ${intensity} kg/kWh`);
   } catch {
     await chrome.storage.local.set({
       gridIntensity: GRID_FALLBACKS.DEFAULT / 1000,
       gridZone: "?",
-      gridSource: "default",
+      gridSource: GRID_SOURCES.DEFAULT,
     });
   }
 }
@@ -367,7 +364,7 @@ async function fetchGridIntensity() {
 
     const em = await emRes.json();
     const intensity = em.carbonIntensity / 1000;
-    await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: "live" });
+    await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: GRID_SOURCES.LIVE });
     console.log(`[EcoLens] Live grid: ${zone} = ${intensity} kg/kWh`);
   } catch {
     await setFallbackGridIntensity();

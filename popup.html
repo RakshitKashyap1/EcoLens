@@ -32,6 +32,7 @@
     .minor-text { font-size:10px; color:#7a9b7c; line-height:1.5; }
     .muted-text { font-size:9px; color:#3a5a3c; line-height:1.5; }
     .pill-row { display:flex; gap:6px; flex-wrap:wrap; }
+    .mini-pill { padding:3px 7px; border-radius:999px; border:1px solid #1e2e1f; background:#0d130e; color:#7a9b7c; font-size:9px; text-transform:uppercase; letter-spacing:.05em; }
     .mini-btn { padding:6px 9px; border:1px solid #1e2e1f; border-radius:7px; background:#0d1f0e; color:#5dbf72; font-family:'DM Mono','Courier New',monospace; font-size:9px; text-transform:uppercase; cursor:pointer; }
     .mini-btn.ghost { background:transparent; color:#7a9b7c; }
     .mini-btn.warn { color:#E24B4A; }
@@ -69,6 +70,12 @@
     .suggestion-card { padding:10px 11px; border:1px solid #1e2e1f; border-radius:10px; background:#0d130e; margin-top:8px; }
     .suggestion-title { font-size:9px; color:#5dbf72; letter-spacing:.08em; text-transform:uppercase; margin-bottom:5px; }
     .suggestion-text { font-size:10px; color:#7a9b7c; line-height:1.5; }
+    .insight-card, .trust-row { padding:10px 11px; border:1px solid #1e2e1f; border-radius:10px; background:#0d130e; }
+    .insight-label { font-size:9px; color:#5dbf72; letter-spacing:.08em; text-transform:uppercase; margin-bottom:5px; }
+    .insight-value { font-family:'Syne',sans-serif; font-size:20px; color:#f0f7f0; line-height:1; }
+    .insight-text { margin-top:6px; font-size:10px; color:#7a9b7c; line-height:1.5; }
+    .trust-row { display:flex; align-items:center; justify-content:space-between; font-size:10px; color:#7a9b7c; }
+    .trust-row strong { color:#c8e0ca; font-weight:500; }
 
     .chart { display:flex; align-items:flex-end; gap:6px; height:110px; margin-top:8px; }
     .chart-col { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:5px; min-width:0; }
@@ -145,6 +152,21 @@
   </div>
 
   <div id="summary-content"></div>
+
+  <div class="section">
+    <div class="section-label">Weekly insights</div>
+    <div id="weekly-insights"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">How this was estimated</div>
+    <div id="trust-breakdown"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Latest activity</div>
+    <div id="latest-activity"></div>
+  </div>
 
   <div class="section">
     <div class="section-label">Daily budget</div>

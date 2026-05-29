@@ -7,8 +7,10 @@ const BASE = {
   chatgpt: { kWh: 0.003, label: "ChatGPT", perUnit: "query" },
   claude: { kWh: 0.0025, label: "Claude", perUnit: "query" },
   gemini: { kWh: 0.002, label: "Gemini", perUnit: "query" },
+  perplexity: { kWh: 0.0022, label: "Perplexity", perUnit: "query" },
   netflix: { kWh: 0.1, label: "Netflix", perUnit: "hour" },
   youtube: { kWh: 0.036, label: "YouTube", perUnit: "hour" },
+  spotify: { kWh: 0.012, label: "Spotify", perUnit: "hour" },
 
   DATA_KWH_PER_GB: 0.06,
 
@@ -43,6 +45,12 @@ const GEMINI_MODELS = [
   { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", kWh: 0.0035, aliases: ["2.5 pro"] },
 ];
 
+const PERPLEXITY_MODELS = [
+  { id: "perplexity-sonar", label: "Sonar", kWh: 0.0015, aliases: ["sonar"] },
+  { id: "perplexity-pro", label: "Perplexity Pro", kWh: 0.0028, aliases: ["pro search", "perplexity pro"] },
+  { id: "perplexity-reasoning", label: "Reasoning", kWh: 0.0038, aliases: ["reasoning", "deep research"] },
+];
+
 const SITES = {
   google: {
     match: () => location.href.includes("google.com/search"),
@@ -68,6 +76,12 @@ const SITES = {
     color: "#4F86F7",
     streaming: false,
   },
+  perplexity: {
+    match: () => location.href.includes("perplexity.ai"),
+    base: BASE.perplexity,
+    color: "#4FD1C5",
+    streaming: false,
+  },
   netflix: {
     match: () => location.href.includes("netflix.com/watch"),
     base: BASE.netflix,
@@ -80,151 +94,35 @@ const SITES = {
     color: "#E24B4A",
     streaming: true,
   },
+  spotify: {
+    match: () => location.href.includes("open.spotify.com"),
+    base: BASE.spotify,
+    color: "#1ED760",
+    streaming: true,
+  },
 };
 
-const DEFAULT_ACCOUNT_ID = "default";
-const DEFAULT_ACCOUNT_NAME = "Personal account";
-const ACTIVITY_RETENTION_DAYS = 90;
+const GRID_INTENSITY_FALLBACK = 0.35 / 1000;
+const BYTES_MEASURED_THRESHOLD = 10_000;
+const AI_SUBMIT_DEBOUNCE_MS = 1500;
+const STREAM_INTERVAL_MS = 15_000;
+
+const {
+  DEFAULT_ACCOUNT_ID,
+  DEFAULT_ACCOUNT_NAME,
+  MEASUREMENT_MODES,
+  GRID_SOURCES,
+  DEVICE_SOURCES,
+  MODEL_CONFIDENCE,
+  normalizeAccountState,
+  normalizeUsageEvent,
+  applyUsageEvent,
+  pruneAccountHistory,
+  detectModelFromText,
+} = globalThis.EcoLensShared;
 
 function isAiSiteKey(siteKey) {
-  return siteKey === "chatgpt" || siteKey === "claude" || siteKey === "gemini";
-}
-
-function getDayKey(ts = Date.now()) {
-  const d = new Date(ts);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function buildEmptyAccountState(now = Date.now()) {
-  return {
-    profile: {
-      name: DEFAULT_ACCOUNT_NAME,
-    },
-    totalCo2: 0,
-    counts: {},
-    siteTotals: {},
-    modelTotals: {},
-    dailyTotals: {},
-    activityLog: [],
-    budget: {
-      enabled: false,
-      dailyGrams: 50,
-      alert80Date: null,
-      alert100Date: null,
-    },
-    lastSite: null,
-    lastTs: null,
-    lastResetTs: now,
-  };
-}
-
-function buildEmptyDailySnapshot() {
-  return {
-    totalCo2: 0,
-    bySite: {},
-    byModel: {},
-    counts: {},
-    eventCount: 0,
-  };
-}
-
-function normalizeAccountState(account, fallbackName = DEFAULT_ACCOUNT_NAME) {
-  const base = buildEmptyAccountState();
-  const next = {
-    ...base,
-    ...account,
-  };
-
-  next.profile = {
-    ...base.profile,
-    ...(account?.profile || {}),
-  };
-  next.profile.name = next.profile.name || fallbackName;
-  next.counts = { ...base.counts, ...(account?.counts || {}) };
-  next.siteTotals = { ...base.siteTotals, ...(account?.siteTotals || {}) };
-  next.modelTotals = { ...base.modelTotals, ...(account?.modelTotals || {}) };
-  next.dailyTotals = { ...base.dailyTotals, ...(account?.dailyTotals || {}) };
-  next.activityLog = Array.isArray(account?.activityLog) ? account.activityLog : [];
-  next.budget = {
-    ...base.budget,
-    ...(account?.budget || {}),
-  };
-
-  return next;
-}
-
-function ensureActiveDay(account, now = Date.now()) {
-  if (getDayKey(account.lastResetTs) === getDayKey(now)) return account;
-
-  account.totalCo2 = 0;
-  account.counts = {};
-  account.siteTotals = {};
-  account.modelTotals = {};
-  account.lastSite = null;
-  account.lastTs = null;
-  account.lastResetTs = now;
-  account.budget.alert80Date = null;
-  account.budget.alert100Date = null;
-  return account;
-}
-
-function pruneAccountHistory(account, now = Date.now()) {
-  const cutoff = now - (ACTIVITY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  account.activityLog = account.activityLog.filter((event) => (event?.ts || 0) >= cutoff);
-  return account;
-}
-
-function applyUsageEvent(account, event) {
-  const ts = event.ts || Date.now();
-  ensureActiveDay(account, ts);
-
-  const grams = Math.max(0, event.grams || 0);
-  const dayKey = getDayKey(ts);
-  const siteKey = event.siteKey;
-  const modelId = event.modelId || "unknown";
-  const shouldIncrementCount = event.incrementCount !== false;
-
-  account.totalCo2 += grams;
-  account.siteTotals[siteKey] = (account.siteTotals[siteKey] || 0) + grams;
-  if (shouldIncrementCount) {
-    account.counts[siteKey] = (account.counts[siteKey] || 0) + 1;
-  }
-
-  if (event.modelLabel) {
-    account.modelTotals[modelId] = (account.modelTotals[modelId] || 0) + grams;
-  }
-
-  const day = account.dailyTotals[dayKey] || buildEmptyDailySnapshot();
-  day.totalCo2 += grams;
-  day.bySite[siteKey] = (day.bySite[siteKey] || 0) + grams;
-  if (event.modelLabel) {
-    day.byModel[modelId] = (day.byModel[modelId] || 0) + grams;
-  }
-  if (shouldIncrementCount) {
-    day.counts[siteKey] = (day.counts[siteKey] || 0) + 1;
-  }
-  day.eventCount += 1;
-  account.dailyTotals[dayKey] = day;
-
-  account.activityLog.push({
-    ts,
-    siteKey,
-    grams,
-    bytes: event.bytes || 0,
-    provider: event.provider || null,
-    modelId: event.modelId || null,
-    modelLabel: event.modelLabel || null,
-    measurementMode: event.measurementMode || "estimated",
-    type: event.type || "visit",
-  });
-
-  pruneAccountHistory(account, ts);
-  account.lastSite = siteKey;
-  account.lastTs = ts;
-  return account;
+  return siteKey === "chatgpt" || siteKey === "claude" || siteKey === "gemini" || siteKey === "perplexity";
 }
 
 function getAccountStorage() {
@@ -307,34 +205,45 @@ function detectSite() {
   return null;
 }
 
-async function getGridIntensity() {
+function getGridIntensity() {
   return new Promise((resolve) => {
     chrome.storage.local.get(["gridIntensity", "gridZone", "gridSource"], (d) => {
       resolve({
-        intensity: d.gridIntensity ?? 0.35 / 1000,
+        intensity: d.gridIntensity ?? GRID_INTENSITY_FALLBACK,
         zone: d.gridZone ?? "?",
-        source: d.gridSource ?? "default",
+        source: d.gridSource ?? GRID_SOURCES.DEFAULT,
       });
     });
   });
 }
 
-async function getDeviceKwhPerHour() {
+async function getDeviceEnergyInfo() {
   if ("getBattery" in navigator) {
     try {
-      const bat = await navigator.getBattery();
-      if (!bat.charging && bat.dischargingTime !== Infinity) {
-        const watts = 50 / (bat.dischargingTime / 3600);
-        if (watts > 0 && watts < 150) return watts / 1000;
+      const battery = await navigator.getBattery();
+      if (!battery.charging && battery.dischargingTime !== Infinity) {
+        const watts = 50 / (battery.dischargingTime / 3600);
+        if (watts > 0 && watts < 150) {
+          return {
+            kwhPerHour: watts / 1000,
+            source: DEVICE_SOURCES.BATTERY_HEURISTIC,
+            deviceType: "battery-derived",
+          };
+        }
       }
     } catch {
-      // Ignore and fall back to the user-selected device type.
+      // Ignore and fall back to the selected device profile.
     }
   }
 
   return new Promise((resolve) => {
     chrome.storage.local.get("deviceType", (d) => {
-      resolve(BASE.DEVICE[d.deviceType ?? "laptop"]);
+      const deviceType = d.deviceType ?? "laptop";
+      resolve({
+        kwhPerHour: BASE.DEVICE[deviceType] || BASE.DEVICE.laptop,
+        source: DEVICE_SOURCES.SELECTED_DEVICE,
+        deviceType,
+      });
     });
   });
 }
@@ -353,30 +262,6 @@ function resetTabBytes() {
   });
 }
 
-function detectChatGptModel() {
-  const text = collectModelDetectionText();
-
-  for (const model of CHATGPT_MODELS) {
-    if (model.aliases.some((alias) => text.includes(alias.toLowerCase()))) {
-      return {
-        provider: "openai",
-        modelId: model.id,
-        label: model.label,
-        kWh: model.kWh,
-        confidence: "heuristic",
-      };
-    }
-  }
-
-  return {
-    provider: "openai",
-    modelId: "chatgpt-default",
-    label: "ChatGPT default",
-    kWh: BASE.chatgpt.kWh,
-    confidence: "unknown",
-  };
-}
-
 function collectModelDetectionText() {
   const selectors = [
     "button",
@@ -384,63 +269,64 @@ function collectModelDetectionText() {
     "[data-testid]",
     "[aria-label]",
     "[data-value]",
+    "[data-state]",
+    "[title]",
     "main",
     "nav",
     "header",
   ];
 
   return selectors
-    .flatMap((selector) => Array.from(document.querySelectorAll(selector)).slice(0, 60))
+    .flatMap((selector) => Array.from(document.querySelectorAll(selector)).slice(0, 80))
     .map((el) => {
       const aria = el.getAttribute("aria-label") || "";
       const dataValue = el.getAttribute("data-value") || "";
+      const dataState = el.getAttribute("data-state") || "";
+      const title = el.getAttribute("title") || "";
       const text = el.textContent || "";
-      return `${aria} ${dataValue} ${text}`.trim();
+      return `${aria} ${dataValue} ${dataState} ${title} ${text}`.trim();
     })
     .join(" ")
     .toLowerCase();
 }
 
-function detectModelFromCatalog(catalog, fallback) {
-  const text = collectModelDetectionText();
-  const ordered = [...catalog].sort((a, b) => {
-    const aLen = Math.max(...a.aliases.map((alias) => alias.length));
-    const bLen = Math.max(...b.aliases.map((alias) => alias.length));
-    return bLen - aLen;
+function detectChatGptModel() {
+  return detectModelFromText(collectModelDetectionText(), CHATGPT_MODELS, {
+    provider: "openai",
+    modelId: "chatgpt-default",
+    label: "ChatGPT default",
+    kWh: BASE.chatgpt.kWh,
+    confidence: MODEL_CONFIDENCE.DEFAULT,
   });
-
-  for (const model of ordered) {
-    if (model.aliases.some((alias) => text.includes(alias.toLowerCase()))) {
-      return {
-        provider: fallback.provider,
-        modelId: model.id,
-        label: model.label,
-        kWh: model.kWh,
-        confidence: "heuristic",
-      };
-    }
-  }
-
-  return fallback;
 }
 
 function detectClaudeModel() {
-  return detectModelFromCatalog(CLAUDE_MODELS, {
+  return detectModelFromText(collectModelDetectionText(), CLAUDE_MODELS, {
     provider: "anthropic",
     modelId: "claude-default",
     label: "Claude default",
     kWh: BASE.claude.kWh,
-    confidence: "unknown",
+    confidence: MODEL_CONFIDENCE.DEFAULT,
   });
 }
 
 function detectGeminiModel() {
-  return detectModelFromCatalog(GEMINI_MODELS, {
+  return detectModelFromText(collectModelDetectionText(), GEMINI_MODELS, {
     provider: "google",
     modelId: "gemini-default",
     label: "Gemini default",
     kWh: BASE.gemini.kWh,
-    confidence: "unknown",
+    confidence: MODEL_CONFIDENCE.DEFAULT,
+  });
+}
+
+function detectPerplexityModel() {
+  return detectModelFromText(collectModelDetectionText(), PERPLEXITY_MODELS, {
+    provider: "perplexity",
+    modelId: "perplexity-default",
+    label: "Perplexity default",
+    kWh: BASE.perplexity.kWh,
+    confidence: MODEL_CONFIDENCE.DEFAULT,
   });
 }
 
@@ -448,42 +334,68 @@ function detectAiModel(site) {
   if (site.key === "chatgpt") return detectChatGptModel();
   if (site.key === "claude") return detectClaudeModel();
   if (site.key === "gemini") return detectGeminiModel();
+  if (site.key === "perplexity") return detectPerplexityModel();
   return null;
 }
 
-async function calcCo2(site, elapsedHours = 0, aiModel = null) {
-  const grid = await getGridIntensity();
-  const deviceKwh = await getDeviceKwhPerHour();
-  const bytes = await queryTabBytes();
+function buildEnergyBreakdown({ site, bytes, elapsedHours, aiModel, deviceInfo, grid }) {
+  const deviceHours = site.streaming ? elapsedHours : (1 / 60);
+  const measuredNetworkKwh = bytes > BYTES_MEASURED_THRESHOLD
+    ? (bytes / 1e9) * BASE.DATA_KWH_PER_GB
+    : 0;
 
-  let networkKwh = 0;
-  const fallbackBaseKwh = aiModel?.kWh || site.base.kWh;
-
-  if (bytes > 10_000) {
-    const gb = bytes / 1e9;
-    networkKwh = gb * BASE.DATA_KWH_PER_GB;
-    if (isAiSiteKey(site.key) && aiModel?.kWh) {
-      networkKwh = Math.max(networkKwh, aiModel.kWh);
-    }
-  } else {
-    networkKwh = fallbackBaseKwh;
-  }
+  let baselineKwhUsed = 0;
+  let networkKwhUsed = measuredNetworkKwh;
 
   if (site.streaming && elapsedHours > 0) {
-    networkKwh = site.base.kWh * elapsedHours;
+    networkKwhUsed = 0;
+    baselineKwhUsed = site.base.kWh * elapsedHours;
+  } else if (measuredNetworkKwh > 0) {
+    if (isAiSiteKey(site.key) && aiModel?.kWh) {
+      baselineKwhUsed = Math.max(aiModel.kWh - measuredNetworkKwh, 0);
+    }
+  } else {
+    baselineKwhUsed = aiModel?.kWh || site.base.kWh;
   }
 
-  const deviceHours = site.streaming ? elapsedHours : (1 / 60);
-  const totalKwh = networkKwh + (deviceKwh * deviceHours);
-  const grams = totalKwh * grid.intensity * 1000;
+  const deviceKwhUsed = deviceInfo.kwhPerHour * deviceHours;
+  const totalKwhUsed = networkKwhUsed + baselineKwhUsed + deviceKwhUsed;
+  const grams = totalKwhUsed * grid.intensity * 1000;
 
   return {
     grams: Math.max(0.01, grams),
+    measurementMode: measuredNetworkKwh > 0 && !site.streaming
+      ? MEASUREMENT_MODES.MEASURED
+      : MEASUREMENT_MODES.ESTIMATED,
+    networkBytesUsed: bytes,
+    networkKwhUsed,
+    baselineKwhUsed,
+    deviceKwhUsed,
+    totalKwhUsed,
+  };
+}
+
+async function calcCo2(site, elapsedHours = 0, aiModel = null) {
+  const [grid, deviceInfo, bytes] = await Promise.all([
+    getGridIntensity(),
+    getDeviceEnergyInfo(),
+    queryTabBytes(),
+  ]);
+
+  const breakdown = buildEnergyBreakdown({
+    site,
+    bytes,
+    elapsedHours,
+    aiModel,
+    deviceInfo,
+    grid,
+  });
+
+  return {
+    ...breakdown,
     grid,
     bytes,
-    networkKwh,
-    deviceKwh,
-    measurementMode: bytes > 10_000 ? "measured" : "estimated",
+    deviceInfo,
     aiModel,
   };
 }
@@ -511,6 +423,26 @@ function fmt(g) {
   return `${(g / 1000).toFixed(2)} kg`;
 }
 
+function fmtKwh(kwh) {
+  if (kwh <= 0) return "0 kWh";
+  if (kwh < 0.01) return `${kwh.toFixed(4)} kWh`;
+  return `${kwh.toFixed(3)} kWh`;
+}
+
+function formatBytes(bytes) {
+  if (bytes > 1e6) return `${(bytes / 1e6).toFixed(1)} MB transferred`;
+  if (bytes > 1000) return `${(bytes / 1000).toFixed(0)} KB transferred`;
+  return "baseline estimate";
+}
+
+function formatModelConfidence(confidence) {
+  return confidence === MODEL_CONFIDENCE.DETECTED ? "model detected" : "model default";
+}
+
+function formatGridSource(source) {
+  return source === GRID_SOURCES.LIVE ? "live grid" : "regional average";
+}
+
 function injectStyles() {
   if (document.getElementById("ecolens-styles")) return;
   const s = document.createElement("style");
@@ -534,7 +466,7 @@ function injectStyles() {
     }
     #ecolens-badge {
       position:fixed; bottom:22px; right:22px; z-index:2147483647;
-      min-width:230px; background:#0a0e0b;
+      min-width:260px; max-width:300px; background:#0a0e0b;
       border-radius:14px; border:1px solid #2a4a2c;
       padding:12px 16px 11px;
       font-family:'DM Mono','Courier New',monospace;
@@ -552,12 +484,19 @@ function injectStyles() {
     #ecolens-badge .el-divider { height:1px;background:#1e2e1f;margin:0 -16px 9px; }
     #ecolens-badge .el-row { display:flex;align-items:baseline;gap:6px;margin-bottom:4px; }
     #ecolens-badge .el-label { font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#3a5a3c;flex:1; }
-    #ecolens-badge .el-val { font-size:11px;color:#7a9b7c; }
+    #ecolens-badge .el-val { font-size:11px;color:#7a9b7c; text-align:right; }
     #ecolens-badge .el-pills { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; }
-    #ecolens-badge .el-model-pill {
+    #ecolens-badge .el-pill {
       display:inline-block;font-size:9px;padding:1px 6px;border-radius:100px;
       background:#0d1f0e;color:#5dbf72;border:1px solid #2a4a2c;
     }
+    #ecolens-badge .el-method {
+      margin-top:8px; padding:7px 8px; border:1px solid #182418; border-radius:8px;
+      background:#0d130e;
+    }
+    #ecolens-badge .el-method-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 10px; }
+    #ecolens-badge .el-mini { font-size:9px; color:#3a5a3c; text-transform:uppercase; letter-spacing:.06em; }
+    #ecolens-badge .el-mini-val { font-size:10px; color:#7a9b7c; }
     #ecolens-badge .el-bar-track { height:3px;background:#111a12;border-radius:100px;overflow:hidden;margin-top:8px; }
     #ecolens-badge .el-bar-fill { height:100%;border-radius:100px;width:0%;transition:width 1.1s cubic-bezier(0.25,1,0.5,1); }
     #ecolens-badge .el-compare { display:flex;justify-content:space-between;font-size:9px;color:#2a4a2c;margin-top:3px; }
@@ -568,26 +507,16 @@ function injectStyles() {
 }
 
 function buildBadge(site, result, elapsedHours = 0) {
-  const { grams, grid, bytes, measurementMode, aiModel } = result;
+  const { grams, grid, bytes, measurementMode, aiModel, deviceInfo } = result;
   const pct = Math.min((grams / 36) * 100, 100).toFixed(1);
   const badge = document.createElement("div");
   badge.id = "ecolens-badge";
 
-  const bytesStr = bytes > 1e6
-    ? `${(bytes / 1e6).toFixed(1)} MB transferred`
-    : bytes > 1000
-    ? `${(bytes / 1000).toFixed(0)} KB transferred`
-    : "measuring...";
-
-  const gridStr = `${(grid.intensity * 1000).toFixed(0)} g/kWh - ${grid.zone}`;
   const timeRow = site.streaming
-    ? `<div class="el-row"><span class="el-label">Time</span><span class="el-val el-time-val">${Math.round(elapsedHours * 60)} min watched</span></div>`
+    ? `<div class="el-row"><span class="el-label">Time</span><span class="el-val el-time-val">${Math.round(elapsedHours * 60)} min active</span></div>`
     : "";
   const modelRow = aiModel
     ? `<div class="el-row"><span class="el-label">Model</span><span class="el-val el-model-name">${aiModel.label}</span></div>`
-    : "";
-  const modelPill = aiModel
-    ? `<span class="el-model-pill">${aiModel.confidence === "heuristic" ? "model heuristic" : "model default"}</span>`
     : "";
 
   badge.innerHTML = `
@@ -601,25 +530,40 @@ function buildBadge(site, result, elapsedHours = 0) {
     <div class="el-unit">CO2${site.streaming ? " so far" : isAiSiteKey(site.key) ? " per prompt" : " this visit"}</div>
 
     <div class="el-pills">
-      <span class="el-model-pill">${measurementMode}</span>
-      ${modelPill}
+      <span class="el-pill el-measurement-pill">${measurementMode}</span>
+      <span class="el-pill el-grid-pill">${formatGridSource(grid.source)}</span>
+      ${aiModel ? `<span class="el-pill el-model-pill">${formatModelConfidence(aiModel.confidence)}</span>` : ""}
     </div>
 
     <div class="el-divider"></div>
 
     <div class="el-row">
       <span class="el-label">Grid</span>
-      <span class="el-val">${gridStr}</span>
+      <span class="el-val el-grid-val">${(grid.intensity * 1000).toFixed(0)} g/kWh - ${grid.zone}</span>
     </div>
     <div class="el-row">
       <span class="el-label">Data</span>
-      <span class="el-val el-data-val">${bytesStr}</span>
+      <span class="el-val el-data-val">${formatBytes(bytes)}</span>
+    </div>
+    <div class="el-row">
+      <span class="el-label">Device</span>
+      <span class="el-val el-device-val">${deviceInfo.source === DEVICE_SOURCES.BATTERY_HEURISTIC ? "battery heuristic" : deviceInfo.deviceType}</span>
     </div>
     ${modelRow}
     ${timeRow}
     <div class="el-row">
       <span class="el-label">Like...</span>
       <span class="el-val el-like-val">~ ${getEquiv(grams)}</span>
+    </div>
+
+    <div class="el-method">
+      <div class="el-mini" style="margin-bottom:4px;">How this was estimated</div>
+      <div class="el-method-grid">
+        <span class="el-mini">Network</span><span class="el-mini-val el-network-kwh">${fmtKwh(result.networkKwhUsed)}</span>
+        <span class="el-mini">Baseline</span><span class="el-mini-val el-baseline-kwh">${fmtKwh(result.baselineKwhUsed)}</span>
+        <span class="el-mini">Device</span><span class="el-mini-val el-device-kwh">${fmtKwh(result.deviceKwhUsed)}</span>
+        <span class="el-mini">Total</span><span class="el-mini-val el-total-kwh">${fmtKwh(result.totalKwhUsed)}</span>
+      </div>
     </div>
 
     <div class="el-bar-track">
@@ -643,34 +587,49 @@ function updateBadgeNumber(grams, color) {
   }
 }
 
-function updateBadgeMeta({ grams, bytes, elapsedHours, site, aiModel, measurementMode }) {
+function updateBadgeMeta({ result, elapsedHours, site }) {
   const dataEl = document.querySelector("#ecolens-badge .el-data-val");
   const likeEl = document.querySelector("#ecolens-badge .el-like-val");
   const compareEl = document.querySelector("#ecolens-badge .el-compare-current");
   const barEl = document.getElementById("el-bar");
   const timeEl = document.querySelector("#ecolens-badge .el-time-val");
   const modelEl = document.querySelector("#ecolens-badge .el-model-name");
-  const pillEl = document.querySelector("#ecolens-badge .el-pills .el-model-pill");
+  const measurementPill = document.querySelector("#ecolens-badge .el-measurement-pill");
+  const gridPill = document.querySelector("#ecolens-badge .el-grid-pill");
+  const modelPill = document.querySelector("#ecolens-badge .el-model-pill");
+  const gridVal = document.querySelector("#ecolens-badge .el-grid-val");
+  const deviceVal = document.querySelector("#ecolens-badge .el-device-val");
+  const networkEl = document.querySelector("#ecolens-badge .el-network-kwh");
+  const baselineEl = document.querySelector("#ecolens-badge .el-baseline-kwh");
+  const deviceEl = document.querySelector("#ecolens-badge .el-device-kwh");
+  const totalEl = document.querySelector("#ecolens-badge .el-total-kwh");
 
-  const bytesStr = bytes > 1e6
-    ? `${(bytes / 1e6).toFixed(1)} MB transferred`
-    : bytes > 1000
-    ? `${(bytes / 1000).toFixed(0)} KB transferred`
-    : "measuring...";
-
-  if (dataEl) dataEl.textContent = bytesStr;
-  if (likeEl) likeEl.textContent = `~ ${getEquiv(grams)}`;
-  if (compareEl) compareEl.textContent = fmt(grams);
-  if (barEl) barEl.style.width = `${Math.min((grams / 36) * 100, 100).toFixed(1)}%`;
-  if (site.streaming && timeEl) timeEl.textContent = `${Math.round(elapsedHours * 60)} min watched`;
-  if (modelEl && aiModel) modelEl.textContent = aiModel.label;
-  if (pillEl && measurementMode) pillEl.textContent = measurementMode;
+  if (dataEl) dataEl.textContent = formatBytes(result.bytes);
+  if (likeEl) likeEl.textContent = `~ ${getEquiv(result.grams)}`;
+  if (compareEl) compareEl.textContent = fmt(result.grams);
+  if (barEl) barEl.style.width = `${Math.min((result.grams / 36) * 100, 100).toFixed(1)}%`;
+  if (site.streaming && timeEl) timeEl.textContent = `${Math.round(elapsedHours * 60)} min active`;
+  if (modelEl && result.aiModel) modelEl.textContent = result.aiModel.label;
+  if (measurementPill) measurementPill.textContent = result.measurementMode;
+  if (gridPill) gridPill.textContent = formatGridSource(result.grid.source);
+  if (modelPill && result.aiModel) modelPill.textContent = formatModelConfidence(result.aiModel.confidence);
+  if (gridVal) gridVal.textContent = `${(result.grid.intensity * 1000).toFixed(0)} g/kWh - ${result.grid.zone}`;
+  if (deviceVal) {
+    deviceVal.textContent = result.deviceInfo.source === DEVICE_SOURCES.BATTERY_HEURISTIC
+      ? "battery heuristic"
+      : result.deviceInfo.deviceType;
+  }
+  if (networkEl) networkEl.textContent = fmtKwh(result.networkKwhUsed);
+  if (baselineEl) baselineEl.textContent = fmtKwh(result.baselineKwhUsed);
+  if (deviceEl) deviceEl.textContent = fmtKwh(result.deviceKwhUsed);
+  if (totalEl) totalEl.textContent = fmtKwh(result.totalKwhUsed);
 }
 
 function recordUsageEvent(event) {
   return getAccountStorage().then(({ currentAccountId, currentAccountName, accounts }) => {
     const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
     applyUsageEvent(account, event);
+    pruneAccountHistory(account);
     accounts[currentAccountId] = account;
     return saveAccountStorage(currentAccountId, currentAccountName, accounts);
   });
@@ -719,39 +678,46 @@ function resetStreamingSession() {
   lastAiSubmitAt = 0;
 }
 
+async function updateStreamingUsage(site) {
+  const elapsedHours = getElapsedStreamingHours();
+  const result = await calcCo2(site, elapsedHours);
+
+  updateBadgeNumber(result.grams, site.color);
+  updateBadgeMeta({ result, elapsedHours, site });
+
+  const delta = result.grams - lastStreamingGrams;
+  if (delta <= 0) return;
+
+  const ratio = result.grams > 0 ? delta / result.grams : 0;
+  await recordUsageEvent({
+    ts: Date.now(),
+    siteKey: site.key,
+    grams: delta,
+    bytes: result.bytes,
+    type: "stream",
+    incrementCount: false,
+    measurementMode: result.measurementMode,
+    gridSource: result.grid.source,
+    gridZone: result.grid.zone,
+    deviceSource: result.deviceInfo.source,
+    modelConfidence: MODEL_CONFIDENCE.UNKNOWN,
+    networkBytesUsed: result.networkBytesUsed,
+    networkKwhUsed: result.networkKwhUsed * ratio,
+    baselineKwhUsed: result.baselineKwhUsed * ratio,
+    deviceKwhUsed: result.deviceKwhUsed * ratio,
+    totalKwhUsed: result.totalKwhUsed * ratio,
+  });
+  lastStreamingGrams = result.grams;
+}
+
 function startStreamingTicker(site) {
   activeStreamingSite = site;
   sessionVisibleStartedAt = Date.now();
 
-  streamingInterval = setInterval(async () => {
+  streamingInterval = setInterval(() => {
     if (document.visibilityState === "hidden") return;
-
-    const elapsedHours = getElapsedStreamingHours();
-    const updated = await calcCo2(site, elapsedHours);
-
-    updateBadgeNumber(updated.grams, site.color);
-    updateBadgeMeta({
-      grams: updated.grams,
-      bytes: updated.bytes,
-      elapsedHours,
-      site,
-      measurementMode: updated.measurementMode,
-    });
-
-    const delta = updated.grams - lastStreamingGrams;
-    if (delta > 0) {
-      await recordUsageEvent({
-        ts: Date.now(),
-        siteKey: site.key,
-        grams: delta,
-        bytes: updated.bytes,
-        type: "stream",
-        incrementCount: false,
-        measurementMode: updated.measurementMode,
-      });
-      lastStreamingGrams = updated.grams;
-    }
-  }, 10_000);
+    updateStreamingUsage(site);
+  }, STREAM_INTERVAL_MS);
 }
 
 function isAiSendButton(target) {
@@ -768,10 +734,7 @@ function isAiSendButton(target) {
     label.includes("submit") ||
     label.includes("run") ||
     label.includes("ask") ||
-    label.includes("arrow up") ||
-    label.includes("new chat") === false && (label.includes("send") || label.includes("submit")) ||
-    label === "send" ||
-    label.includes("submit")
+    label.includes("search")
   );
 }
 
@@ -789,21 +752,14 @@ function bindAiQueryTracker(site) {
 
   const scheduleRecord = () => {
     const now = Date.now();
-    if (now - lastAiSubmitAt < 1500) return;
+    if (now - lastAiSubmitAt < AI_SUBMIT_DEBOUNCE_MS) return;
     lastAiSubmitAt = now;
 
     setTimeout(async () => {
       const aiModel = detectAiModel(site);
       const result = await calcCo2(site, 0, aiModel);
       updateBadgeNumber(result.grams, site.color);
-      updateBadgeMeta({
-        grams: result.grams,
-        bytes: result.bytes,
-        elapsedHours: 0,
-        site,
-        aiModel,
-        measurementMode: result.measurementMode,
-      });
+      updateBadgeMeta({ result, elapsedHours: 0, site });
 
       await recordUsageEvent({
         ts: Date.now(),
@@ -816,6 +772,15 @@ function bindAiQueryTracker(site) {
         type: "query",
         incrementCount: true,
         measurementMode: result.measurementMode,
+        gridSource: result.grid.source,
+        gridZone: result.grid.zone,
+        deviceSource: result.deviceInfo.source,
+        modelConfidence: aiModel?.confidence || MODEL_CONFIDENCE.UNKNOWN,
+        networkBytesUsed: result.networkBytesUsed,
+        networkKwhUsed: result.networkKwhUsed,
+        baselineKwhUsed: result.baselineKwhUsed,
+        deviceKwhUsed: result.deviceKwhUsed,
+        totalKwhUsed: result.totalKwhUsed,
       });
     }, 1200);
   };
@@ -878,6 +843,15 @@ async function init() {
     type: site.streaming ? "stream-start" : "visit",
     incrementCount: true,
     measurementMode: result.measurementMode,
+    gridSource: result.grid.source,
+    gridZone: result.grid.zone,
+    deviceSource: result.deviceInfo.source,
+    modelConfidence: MODEL_CONFIDENCE.UNKNOWN,
+    networkBytesUsed: result.networkBytesUsed,
+    networkKwhUsed: result.networkKwhUsed,
+    baselineKwhUsed: result.baselineKwhUsed,
+    deviceKwhUsed: result.deviceKwhUsed,
+    totalKwhUsed: result.totalKwhUsed,
   });
 
   if (site.streaming) {
