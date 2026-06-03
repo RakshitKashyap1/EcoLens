@@ -39,6 +39,21 @@ globalThis.EcoLensShared = (() => {
     return `${y}-${m}-${day}`;
   }
 
+  // Keep grid-zone values narrow so stale HTML or other junk cannot leak into the UI.
+  function normalizeGridZone(zone) {
+    const value = String(zone || "").trim().toUpperCase();
+    if (value === "DEFAULT") return "DEFAULT";
+    return /^[A-Z]{2}$/.test(value) ? value : "";
+  }
+
+  // Turn a stored zone into a safe display label for the popup and badge.
+  function formatGridZoneLabel(zone, source = GRID_SOURCES.DEFAULT) {
+    const normalized = normalizeGridZone(zone);
+    if (source === GRID_SOURCES.LIVE && normalized) return normalized;
+    if (source === GRID_SOURCES.FALLBACK && normalized) return normalized;
+    return "regional average";
+  }
+
   // Small helpers for building zeroed-out totals and merging partial snapshots.
   function buildEmptyBreakdownTotals() {
     return {
@@ -120,7 +135,7 @@ globalThis.EcoLensShared = (() => {
       incrementCount: event.incrementCount !== false,
       measurementMode: event.measurementMode || MEASUREMENT_MODES.ESTIMATED,
       gridSource: event.gridSource || GRID_SOURCES.DEFAULT,
-      gridZone: event.gridZone || "?",
+      gridZone: normalizeGridZone(event.gridZone) || "?",
       deviceSource: event.deviceSource || DEVICE_SOURCES.SELECTED_DEVICE,
       modelConfidence: event.modelConfidence || MODEL_CONFIDENCE.UNKNOWN,
       networkBytesUsed: Math.max(0, Number(event.networkBytesUsed ?? event.bytes) || 0),
@@ -319,6 +334,8 @@ globalThis.EcoLensShared = (() => {
     normalizeDailySnapshot,
     buildEmptyAccountState,
     normalizeUsageEvent,
+    normalizeGridZone,
+    formatGridZoneLabel,
     normalizeAccountState,
     resetAccountDay,
     ensureActiveDay,

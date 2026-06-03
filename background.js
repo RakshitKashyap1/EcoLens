@@ -44,11 +44,7 @@ const {
   buildSessionPayload,
 } = globalThis.EcoLensAuth;
 const { startEmailAuth, verifyEmailAuth, fetchProfile, syncDailyStats, syncActivityEvents } = globalThis.EcoLensApi;
-
-function normalizeCountryZone(value) {
-  const zone = String(value || "").trim().toUpperCase();
-  return /^[A-Z]{2}$/.test(zone) ? zone : "";
-}
+const { normalizeGridZone } = globalThis.EcoLensShared;
 
 // Keep a tiny helper for zeroed daily snapshots because the worker writes them often.
 function buildEmptyDailySnapshot() {
@@ -250,13 +246,17 @@ async function syncCurrentAccount(reason = "background") {
       reason,
       accountName: account.profile.name,
       dailyStats: payload.dailyStats,
-    }, authState);
+    }, authState).catch((error) => {
+      throw new Error(`daily stats sync failed: ${error.message}`);
+    });
 
     await syncActivityEvents({
       reason,
       accountName: account.profile.name,
       events: payload.events,
-    }, authState);
+    }, authState).catch((error) => {
+      throw new Error(`activity sync failed: ${error.message}`);
+    });
 
     const me = await fetchProfile(authState).catch(() => null);
     const nextAuthState = me?.user
@@ -348,7 +348,7 @@ async function refreshCloudProfile() {
 async function setFallbackGridIntensity() {
   try {
     const geoRes = await fetch("https://ipapi.co/country/");
-    const zone = normalizeCountryZone(await geoRes.text()) || "DEFAULT";
+    const zone = normalizeGridZone(await geoRes.text()) || "DEFAULT";
     const intensity = (GRID_FALLBACKS[zone] ?? GRID_FALLBACKS.DEFAULT) / 1000;
     await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: GRID_SOURCES.FALLBACK });
     console.log(`[EcoLens] Fallback grid: ${zone} = ${intensity} kg/kWh`);
@@ -371,7 +371,7 @@ async function fetchGridIntensity() {
   try {
     const geoRes = await fetch("https://ipapi.co/json/");
     const geo = await geoRes.json();
-    const zone = normalizeCountryZone(geo.country_code) || "DEFAULT";
+    const zone = normalizeGridZone(geo.country_code) || "DEFAULT";
 
     const emRes = await fetch(
       `https://api.electricitymap.org/v3/carbon-intensity/latest?zone=${zone}`,

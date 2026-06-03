@@ -34,12 +34,17 @@ globalThis.EcoLensAuth = (() => {
 
   // Convert a backend session response into the local auth state format.
   function buildSessionPayload(session, emailFallback = null) {
+    const accessToken = session.access_token || session.accessToken || null;
+    if (!accessToken) {
+      throw new Error("Invalid auth session returned by the backend.");
+    }
+
     return normalizeAuthState({
       signedIn: true,
       userId: session.user?.id || session.userId || null,
       email: session.user?.email || session.email || emailFallback,
       displayName: session.user?.user_metadata?.display_name || session.displayName || null,
-      accessToken: session.access_token || session.accessToken || null,
+      accessToken,
       refreshToken: session.refresh_token || session.refreshToken || null,
       expiresAt: session.expires_at
         ? session.expires_at * 1000

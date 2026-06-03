@@ -117,6 +117,7 @@ const {
   GRID_SOURCES,
   DEVICE_SOURCES,
   MODEL_CONFIDENCE,
+  formatGridZoneLabel,
   normalizeAccountState,
   normalizeUsageEvent,
   applyUsageEvent,
@@ -642,7 +643,7 @@ function updateBadgeMeta({ result, elapsedHours, site }) {
   if (measurementPill) measurementPill.textContent = result.measurementMode;
   if (gridPill) gridPill.textContent = formatGridSource(result.grid.source);
   if (modelPill && result.aiModel) modelPill.textContent = formatModelConfidence(result.aiModel.confidence);
-  if (gridVal) gridVal.textContent = `${(result.grid.intensity * 1000).toFixed(0)} g/kWh - ${result.grid.zone}`;
+  if (gridVal) gridVal.textContent = `${(result.grid.intensity * 1000).toFixed(0)} g/kWh - ${formatGridZoneLabel(result.grid.zone, result.grid.source)}`;
   if (deviceVal) {
     deviceVal.textContent = result.deviceInfo.source === DEVICE_SOURCES.BATTERY_HEURISTIC
       ? "battery heuristic"

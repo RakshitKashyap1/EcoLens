@@ -20,10 +20,14 @@ const {
   GRID_SOURCES,
   DEVICE_SOURCES,
   MODEL_CONFIDENCE,
+  CLOUD_SYNC_BATCH_DAYS,
+  ACTIVITY_RETENTION_DAYS,
+  DAILY_RETENTION_DAYS,
   getDayKey,
   normalizeAccountState,
   normalizeUsageEvent,
   normalizeBreakdownTotals,
+  formatGridZoneLabel,
   getBackendConfig,
   buildSyncState,
   fmtDateTime,
@@ -176,13 +180,14 @@ function renderGridStrip({ intensity, zone, source }) {
   const dot = document.getElementById("grid-dot");
   const val = document.getElementById("grid-val");
   const src = document.getElementById("grid-source");
+  const zoneLabel = formatGridZoneLabel(zone, source);
 
   const dotColor = gPerKwh < 100 ? "#5dbf72"
     : gPerKwh < 300 ? "#EF9F27"
     : "#E24B4A";
 
   if (dot) dot.style.background = dotColor;
-  if (val) val.textContent = `${gPerKwh} g/kWh - ${zone}`;
+  if (val) val.textContent = `${gPerKwh} g/kWh - ${zoneLabel}`;
   if (src) src.textContent = labelGridSource(source);
 }
 
@@ -346,7 +351,7 @@ function renderLatestActivity(account) {
         <span class="mini-pill">${labelGridSource(event.gridSource)}</span>
         <span class="mini-pill">${labelDeviceSource(event.deviceSource)}</span>
       </div>
-      <div class="muted-text">Grid zone: ${event.gridZone || "?"}${sep}Data: ${formatBytes(event.networkBytesUsed)}</div>
+      <div class="muted-text">Grid zone: ${formatGridZoneLabel(event.gridZone, event.gridSource)}${sep}Data: ${formatBytes(event.networkBytesUsed)}</div>
       <div class="muted-text">Network ${fmtKwh(event.networkKwhUsed)}${sep}Baseline ${fmtKwh(event.baselineKwhUsed)}${sep}Device ${fmtKwh(event.deviceKwhUsed)}</div>
       ${modelLine}
     </div>
@@ -566,6 +571,34 @@ function renderCloudState(authState, syncState) {
   syncBtn.disabled = !signedIn || syncState.status === "syncing";
 }
 
+// Surface a compact diagnostic panel for storage, grid, and sync health.
+function renderDiagnostics(account, grid, authState, syncState, accountId) {
+  const backendConfig = getBackendConfig();
+  const items = [
+    { label: "Account", value: account.profile?.name || DEFAULT_ACCOUNT_NAME },
+    { label: "Account ID", value: accountId },
+    { label: "Grid source", value: labelGridSource(grid.source) },
+    { label: "Grid zone", value: formatGridZoneLabel(grid.zone, grid.source) },
+    { label: "Backend", value: backendConfig.configured ? "configured" : "not configured" },
+    { label: "Auth", value: authState.signedIn ? "signed in" : "signed out" },
+    { label: "Sync", value: syncState.status || "idle" },
+    { label: "Cloud batch", value: `${CLOUD_SYNC_BATCH_DAYS} days` },
+    { label: "Activity retention", value: `${ACTIVITY_RETENTION_DAYS} days` },
+    { label: "Daily retention", value: `${DAILY_RETENTION_DAYS} days` },
+  ];
+
+  return `
+    <div class="diag-grid">
+      ${items.map((item) => `
+        <div class="diag-item">
+          <div class="diag-label">${item.label}</div>
+          <div class="diag-value">${item.value}</div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 // Read the stored cloud auth and sync records for the popup.
 async function getCloudState() {
   const stored = await chrome.storage.local.get(["cloudAuth", "cloudSync"]);
@@ -723,6 +756,11 @@ async function boot() {
   document.getElementById("trust-breakdown").innerHTML = renderTrustBreakdown(account);
   document.getElementById("latest-activity").innerHTML = renderLatestActivity(account);
   document.getElementById("model-breakdown").innerHTML = renderModelBreakdown(account.modelTotals);
+  document.getElementById("diagnostics").innerHTML = renderDiagnostics(account, {
+    intensity: d.gridIntensity,
+    zone: d.gridZone,
+    source: d.gridSource,
+  }, authState, syncState, d.currentAccountId);
   document.getElementById("suggestions").innerHTML = renderSuggestions(account);
   document.getElementById("week-chart").innerHTML = renderChart(account.dailyTotals, 7, false);
   document.getElementById("month-chart").innerHTML = renderChart(account.dailyTotals, 30, true);

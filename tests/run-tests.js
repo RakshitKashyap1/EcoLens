@@ -12,7 +12,16 @@ function loadShared() {
   return context.globalThis.EcoLensShared;
 }
 
+function loadAuth(shared) {
+  const code = fs.readFileSync(path.join(__dirname, "..", "auth.js"), "utf8");
+  const context = { globalThis: { EcoLensShared: shared } };
+  vm.createContext(context);
+  vm.runInContext(code, context);
+  return context.globalThis.EcoLensAuth;
+}
+
 const shared = loadShared();
+const auth = loadAuth(shared);
 
 // Verify that raw event normalization fills in defaults and derived totals.
 function testNormalizeUsageEvent() {
@@ -94,12 +103,30 @@ function testDetectModelFromTextPrefersLongestAliasAndFallsBack() {
   assert.equal(fallback.confidence, "default");
 }
 
+// Ensure grid-zone normalization rejects HTML garbage and keeps valid zones.
+function testNormalizeGridZoneAndFormatting() {
+  assert.equal(shared.normalizeGridZone("<!DOCTYPE html>"), "");
+  assert.equal(shared.normalizeGridZone("us"), "US");
+  assert.equal(shared.formatGridZoneLabel("US", "live"), "US");
+  assert.equal(shared.formatGridZoneLabel("<bad>", "default"), "regional average");
+}
+
+// Ensure malformed backend sessions fail fast instead of being stored.
+function testBuildSessionPayloadRequiresToken() {
+  assert.throws(
+    () => auth.buildSessionPayload({ user: { id: "user-1" } }, "me@example.com"),
+    /Invalid auth session/
+  );
+}
+
 // Run the lightweight shared-logic checks from the command line.
 function run() {
   testNormalizeUsageEvent();
   testApplyUsageEventBuildsBreakdownTotals();
   testPruneAccountHistoryRemovesOldData();
   testDetectModelFromTextPrefersLongestAliasAndFallsBack();
+  testNormalizeGridZoneAndFormatting();
+  testBuildSessionPayloadRequiresToken();
   console.log("EcoLens tests passed");
 }
 

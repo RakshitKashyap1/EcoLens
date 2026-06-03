@@ -82,6 +82,11 @@
     .trust-row { display:flex; align-items:center; justify-content:space-between; font-size:10px; color:#7a9b7c; }
     .trust-row strong { color:#c8e0ca; font-weight:500; }
 
+    .diag-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; }
+    .diag-item { padding:10px 11px; border:1px solid #1e2e1f; border-radius:10px; background:#0d130e; }
+    .diag-label { font-size:9px; color:#5dbf72; letter-spacing:.08em; text-transform:uppercase; margin-bottom:4px; }
+    .diag-value { font-size:10px; color:#c8e0ca; line-height:1.4; word-break:break-word; }
+
     /* Chart and device selector visuals. */
     .chart { display:flex; align-items:flex-end; gap:6px; height:110px; margin-top:8px; }
     .chart-col { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:5px; min-width:0; }
@@ -118,12 +123,12 @@
       <div class="logo-dot"></div>
       <div class="logo-name">Eco<span>Lens</span></div>
     </div>
-    <div class="ver">v2.1 - History</div>
+    <div class="ver">v2.0 - History</div>
   </div>
 
   <div class="grid-strip" id="grid-strip">
     <div class="grid-dot" id="grid-dot" style="background:#3a5a3c"></div>
-    <span>Grid:</span>
+    <span>Grid status:</span>
     <span class="grid-val" id="grid-val">detecting...</span>
     <span class="grid-source" id="grid-source"></span>
   </div>
@@ -202,6 +207,12 @@
     <div id="model-breakdown"></div>
   </div>
 
+  <!-- Quick diagnostics for grid and sync health. -->
+  <div class="section">
+    <div class="section-label">Diagnostics</div>
+    <div id="diagnostics"></div>
+  </div>
+
   <!-- Personalized reduction suggestions. -->
   <div class="section">
     <div class="section-label">Greener suggestions</div>
@@ -233,7 +244,7 @@
   <!-- Reset action and attribution link. -->
   <div class="footer">
     <button class="reset-btn" id="reset-btn">reset today</button>
-    <a class="src-link" href="https://theshiftproject.org" target="_blank" rel="noreferrer">sources: Shift Project - IEA</a>
+    <a class="src-link" href="https://theshiftproject.org" target="_blank" rel="noreferrer">sources: Shift Project and IEA</a>
   </div>
 
   <script src="shared.js"></script>
