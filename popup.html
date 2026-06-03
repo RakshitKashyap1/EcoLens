@@ -4,10 +4,12 @@
   <meta charset="UTF-8" />
   <title>EcoLens</title>
   <style>
+    /* Base page layout and typography for the popup shell. */
     @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap');
     * { box-sizing:border-box; margin:0; padding:0; }
     body { width:340px; background:#0a0e0b; color:#e8f0e9; font-family:'DM Mono','Courier New',monospace; overflow-x:hidden; }
 
+    /* Header and live grid status strip. */
     .hd { padding:13px 15px 11px; border-bottom:1px solid #1e2e1f; display:flex; align-items:center; justify-content:space-between; }
     .logo { display:flex; align-items:center; gap:7px; }
     .logo-dot { width:8px; height:8px; border-radius:50%; background:#5dbf72; animation:pulse 2s ease-in-out infinite; }
@@ -21,6 +23,7 @@
     .grid-val { color:#7a9b7c; }
     .grid-source { margin-left:auto; font-size:9px; color:#2a4a2c; }
 
+    /* Reusable section and form controls. */
     .section { padding:12px 15px; border-bottom:1px solid #1e2e1f; }
     .section-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:8px; }
 
@@ -41,6 +44,7 @@
     .auth-code-row.show { display:flex; }
     .sync-box { padding:9px 10px; border:1px solid #1e2e1f; border-radius:8px; background:#0d130e; }
 
+    /* Summary card and breakdown rows. */
     .session-card { padding:14px 15px 12px; border-bottom:1px solid #1e2e1f; }
     .sess-label { font-size:9px; color:#3a5a3c; letter-spacing:.1em; text-transform:uppercase; margin-bottom:5px; }
     .sess-num { font-family:'Syne',sans-serif; font-size:36px; font-weight:800; color:#5dbf72; line-height:1; letter-spacing:-0.04em; transition:color 0.4s; }
@@ -61,6 +65,7 @@
     .bar-track { height:3px; background:#111a12; border-radius:100px; overflow:hidden; margin-top:3px; }
     .bar-fill { height:100%; width:0%; border-radius:100px; transition:width 1s cubic-bezier(.25,1,.5,1); }
 
+    /* Budget controls and alert meter. */
     .budget-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
     .budget-check { accent-color:#5dbf72; }
     .budget-status { font-size:10px; color:#7a9b7c; margin-top:8px; }
@@ -77,6 +82,7 @@
     .trust-row { display:flex; align-items:center; justify-content:space-between; font-size:10px; color:#7a9b7c; }
     .trust-row strong { color:#c8e0ca; font-weight:500; }
 
+    /* Chart and device selector visuals. */
     .chart { display:flex; align-items:flex-end; gap:6px; height:110px; margin-top:8px; }
     .chart-col { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:5px; min-width:0; }
     .chart-bar-wrap { height:84px; width:100%; display:flex; align-items:flex-end; }
@@ -92,6 +98,7 @@
     .dev-btn.sel { border-color:#2a4a2c; background:#0d1f0e; color:#5dbf72; }
     .dev-btn:hover { border-color:#2a4a2c; color:#7a9b7c; }
 
+    /* Footer actions and empty-state treatment. */
     .footer { padding:9px 15px; display:flex; align-items:center; justify-content:space-between; }
     .reset-btn { font-family:'DM Mono',monospace; font-size:9px; color:#2a4a2c; background:none; border:none; cursor:pointer; letter-spacing:.06em; text-transform:uppercase; padding:0; transition:color .15s; }
     .reset-btn:hover { color:#E24B4A; }
@@ -105,6 +112,7 @@
   </style>
 </head>
 <body>
+  <!-- Brand header and grid status. -->
   <div class="hd">
     <div class="logo">
       <div class="logo-dot"></div>
@@ -120,6 +128,7 @@
     <span class="grid-source" id="grid-source"></span>
   </div>
 
+  <!-- Account naming and cloud sync controls. -->
   <div class="section">
     <div class="section-label">Tracked account</div>
     <div class="account-controls">
@@ -151,23 +160,28 @@
     </div>
   </div>
 
+  <!-- Main total and per-site breakdown. -->
   <div id="summary-content"></div>
 
+  <!-- Insight cards for weekly change. -->
   <div class="section">
     <div class="section-label">Weekly insights</div>
     <div id="weekly-insights"></div>
   </div>
 
+  <!-- Trust / methodology explanation. -->
   <div class="section">
     <div class="section-label">How this was estimated</div>
     <div id="trust-breakdown"></div>
   </div>
 
+  <!-- Most recent tracked activity. -->
   <div class="section">
     <div class="section-label">Latest activity</div>
     <div id="latest-activity"></div>
   </div>
 
+  <!-- Daily budget controls and alert state. -->
   <div class="section">
     <div class="section-label">Daily budget</div>
     <div class="budget-row">
@@ -182,16 +196,19 @@
     <div class="budget-meter" id="budget-meter"></div>
   </div>
 
+  <!-- AI model usage breakdown. -->
   <div class="section">
     <div class="section-label">Model breakdown</div>
     <div id="model-breakdown"></div>
   </div>
 
+  <!-- Personalized reduction suggestions. -->
   <div class="section">
     <div class="section-label">Greener suggestions</div>
     <div id="suggestions"></div>
   </div>
 
+  <!-- Trend charts for the last 7 and 30 days. -->
   <div class="section">
     <div class="section-label">Last 7 days</div>
     <div id="week-chart"></div>
@@ -202,6 +219,7 @@
     <div id="month-chart"></div>
   </div>
 
+  <!-- Device selector used by the energy model. -->
   <div class="device-row">
     <div class="dev-label">Your device</div>
     <div class="dev-btns">
@@ -212,6 +230,7 @@
     </div>
   </div>
 
+  <!-- Reset action and attribution link. -->
   <div class="footer">
     <button class="reset-btn" id="reset-btn">reset today</button>
     <a class="src-link" href="https://theshiftproject.org" target="_blank" rel="noreferrer">sources: Shift Project - IEA</a>

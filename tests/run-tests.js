@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
+// Load the shared browser-extension helpers into a sandboxed Node context.
 function loadShared() {
   const code = fs.readFileSync(path.join(__dirname, "..", "shared.js"), "utf8");
   const context = { globalThis: {} };
@@ -13,6 +14,7 @@ function loadShared() {
 
 const shared = loadShared();
 
+// Verify that raw event normalization fills in defaults and derived totals.
 function testNormalizeUsageEvent() {
   const event = shared.normalizeUsageEvent({
     siteKey: "chatgpt",
@@ -28,6 +30,7 @@ function testNormalizeUsageEvent() {
   assert.equal(event.totalKwhUsed, 0.0032);
 }
 
+// Confirm that applying an event updates the per-day methodology breakdown.
 function testApplyUsageEventBuildsBreakdownTotals() {
   const account = shared.buildEmptyAccountState(new Date("2026-05-29T00:00:00Z").getTime());
   shared.applyUsageEvent(account, {
@@ -47,6 +50,7 @@ function testApplyUsageEventBuildsBreakdownTotals() {
   assert.equal(day.breakdownTotals.device, 0.0001);
 }
 
+// Ensure old data is pruned while recent data stays available.
 function testPruneAccountHistoryRemovesOldData() {
   const account = shared.buildEmptyAccountState(new Date("2026-05-29T00:00:00Z").getTime());
   account.activityLog.push(
@@ -63,6 +67,7 @@ function testPruneAccountHistoryRemovesOldData() {
   assert.ok(account.dailyTotals["2026-05-28"]);
 }
 
+// Check model detection ordering and fallback behavior.
 function testDetectModelFromTextPrefersLongestAliasAndFallsBack() {
   const catalog = [
     { id: "mini", label: "Mini", kWh: 1, aliases: ["4o"] },
@@ -89,6 +94,7 @@ function testDetectModelFromTextPrefersLongestAliasAndFallsBack() {
   assert.equal(fallback.confidence, "default");
 }
 
+// Run the lightweight shared-logic checks from the command line.
 function run() {
   testNormalizeUsageEvent();
   testApplyUsageEventBuildsBreakdownTotals();

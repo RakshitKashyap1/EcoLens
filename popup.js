@@ -2,6 +2,7 @@
 //  EcoLens popup.js
 // ============================================================
 
+// Metadata used to label and color the supported sites in the popup.
 const SITE_META = {
   google: { label: "Google Search", color: "#5dbf72", bg: "#0d1f0e" },
   chatgpt: { label: "ChatGPT", color: "#EF9F27", bg: "#1f180a" },
@@ -30,6 +31,7 @@ const {
 
 const { buildSignedOutState, normalizeAuthState } = globalThis.EcoLensAuth;
 
+// Load the current account and migrate older storage into the newer account map when needed.
 function getAccountStorage() {
   return new Promise((resolve) => {
     chrome.storage.local.get(
@@ -86,6 +88,7 @@ function getAccountStorage() {
   });
 }
 
+// Persist the active account back to storage so the popup stays in sync with changes.
 function saveAccountStorage(currentAccountId, currentAccountName, accounts, callback) {
   const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
   accounts[currentAccountId] = account;
@@ -107,6 +110,7 @@ function saveAccountStorage(currentAccountId, currentAccountName, accounts, call
   );
 }
 
+// Compact number formatting keeps the dashboard readable.
 function fmt(g) {
   if (g <= 0) return "0g";
   if (g < 0.1) return `${g.toFixed(3)}g`;
@@ -115,18 +119,21 @@ function fmt(g) {
   return `${(g / 1000).toFixed(2)} kg`;
 }
 
+// Show methodology energy totals in the trust section.
 function fmtKwh(kwh) {
   if (kwh <= 0) return "0 kWh";
   if (kwh < 0.01) return `${kwh.toFixed(4)} kWh`;
   return `${kwh.toFixed(3)} kWh`;
 }
 
+// Color today's total based on how large the footprint is.
 function co2Color(g) {
   if (g < 5) return "";
   if (g < 30) return "amber";
   return "red";
 }
 
+// Convert grams into a familiar comparison phrase.
 function getEquiv(g) {
   if (g <= 0) return null;
   if (g < 1) return `${(g / 0.007 * 60).toFixed(0)} sec of a LED bulb`;
@@ -136,28 +143,34 @@ function getEquiv(g) {
   return `${(g / 36).toFixed(1)} hrs of Netflix`;
 }
 
+// Label whether grid data came from a live source or a fallback.
 function labelGridSource(source) {
   return source === GRID_SOURCES.LIVE ? "live grid" : "regional average";
 }
 
+// Normalize the measurement mode text shown in pills and event rows.
 function labelMeasurementMode(mode) {
   return mode === "measured" ? "measured" : "estimated";
 }
 
+// Normalize the model-confidence text shown in pills and event rows.
 function labelModelConfidence(confidence) {
   return confidence === MODEL_CONFIDENCE.DETECTED ? "model detected" : "model default";
 }
 
+// Label the device-energy source used for today's estimate.
 function labelDeviceSource(source) {
   return source === DEVICE_SOURCES.BATTERY_HEURISTIC ? "battery heuristic" : "selected device";
 }
 
+// Present byte counts in a small human-readable format.
 function formatBytes(bytes) {
   if (bytes > 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
   if (bytes > 1000) return `${(bytes / 1000).toFixed(0)} KB`;
   return "baseline estimate";
 }
 
+// Render the live grid summary strip at the top of the popup.
 function renderGridStrip({ intensity, zone, source }) {
   const gPerKwh = (intensity * 1000).toFixed(0);
   const dot = document.getElementById("grid-dot");
@@ -173,6 +186,7 @@ function renderGridStrip({ intensity, zone, source }) {
   if (src) src.textContent = labelGridSource(source);
 }
 
+// Build a rolling list of day keys for the requested chart window.
 function getPastDayKeys(numDays) {
   const out = [];
   for (let i = numDays - 1; i >= 0; i -= 1) {
@@ -181,11 +195,13 @@ function getPastDayKeys(numDays) {
   return out;
 }
 
+// Format a day key for either compact or standard chart labels.
 function labelForDayKey(dayKey, compact = false) {
   const [, month, day] = dayKey.split("-");
   return compact ? day : `${month}/${day}`;
 }
 
+// Compare the most recent week with the week before it.
 function buildWeeklyInsight(account) {
   const keys = getPastDayKeys(14);
   const previous = keys.slice(0, 7).reduce((sum, key) => sum + (account.dailyTotals[key]?.totalCo2 || 0), 0);
@@ -195,11 +211,14 @@ function buildWeeklyInsight(account) {
   return { current, previous, diff, direction };
 }
 
+// Identify the biggest emitting site in the account history.
 function getTopEmitter(account) {
   return Object.entries(account.siteTotals || {})
     .sort((a, b) => b[1] - a[1])[0] || null;
 }
 
+// Render the two top-level insight cards for weekly change and top emitter.
+// Render the two top-level insight cards for weekly change and top emitter.
 function renderInsights(account) {
   const weekly = buildWeeklyInsight(account);
   const topEmitter = getTopEmitter(account);
@@ -226,6 +245,7 @@ function renderInsights(account) {
   `;
 }
 
+// Render the main "today" card and the per-platform breakdown.
 function renderSummary(account) {
   const totalCo2 = account.totalCo2 || 0;
   const equiv = getEquiv(totalCo2);
@@ -268,6 +288,7 @@ function renderSummary(account) {
     </div>`;
 }
 
+// Show the empty state when the user has not tracked any activity yet.
 function renderEmpty() {
   return `
     <div class="empty">
@@ -281,6 +302,7 @@ function renderEmpty() {
     </div>`;
 }
 
+// Break today's totals into network, baseline, and device components.
 function renderTrustBreakdown(account) {
   const today = account.dailyTotals[getDayKey()] || {};
   const breakdown = normalizeBreakdownTotals(today.breakdownTotals);
@@ -304,6 +326,7 @@ function renderTrustBreakdown(account) {
   `;
 }
 
+// Surface the latest stored event with provenance and methodology details.
 function renderLatestActivity(account) {
   const rawEvent = (account.activityLog || []).slice(-1)[0];
   if (!rawEvent) {
@@ -312,23 +335,25 @@ function renderLatestActivity(account) {
 
   const event = normalizeUsageEvent(rawEvent);
   const site = SITE_META[event.siteKey] || { label: event.siteKey, color: "#7a9b7c" };
-  const modelLine = event.modelLabel ? `<div class="muted-text">Model: ${event.modelLabel} · ${labelModelConfidence(event.modelConfidence)}</div>` : "";
+  const sep = " - ";
+  const modelLine = event.modelLabel ? `<div class="muted-text">Model: ${event.modelLabel}${sep}${labelModelConfidence(event.modelConfidence)}</div>` : "";
 
   return `
     <div class="stack">
-      <div class="minor-text"><strong style="color:${site.color}">${site.label}</strong> · ${fmt(event.grams)} · ${new Date(event.ts).toLocaleTimeString()}</div>
+      <div class="minor-text"><strong style="color:${site.color}">${site.label}</strong>${sep}${fmt(event.grams)}${sep}${new Date(event.ts).toLocaleTimeString()}</div>
       <div class="pill-row">
         <span class="mini-pill">${labelMeasurementMode(event.measurementMode)}</span>
         <span class="mini-pill">${labelGridSource(event.gridSource)}</span>
         <span class="mini-pill">${labelDeviceSource(event.deviceSource)}</span>
       </div>
-      <div class="muted-text">Grid zone: ${event.gridZone} · Data: ${formatBytes(event.networkBytesUsed)}</div>
-      <div class="muted-text">Network ${fmtKwh(event.networkKwhUsed)} · Baseline ${fmtKwh(event.baselineKwhUsed)} · Device ${fmtKwh(event.deviceKwhUsed)}</div>
+      <div class="muted-text">Grid zone: ${event.gridZone || "?"}${sep}Data: ${formatBytes(event.networkBytesUsed)}</div>
+      <div class="muted-text">Network ${fmtKwh(event.networkKwhUsed)}${sep}Baseline ${fmtKwh(event.baselineKwhUsed)}${sep}Device ${fmtKwh(event.deviceKwhUsed)}</div>
       ${modelLine}
     </div>
   `;
 }
 
+// Build a compact bar chart for the selected time window.
 function renderChart(dailyTotals, numDays, monthStyle = false) {
   const keys = getPastDayKeys(numDays);
   const data = keys.map((key) => ({
@@ -353,6 +378,7 @@ function renderChart(dailyTotals, numDays, monthStyle = false) {
   return `<div class="chart">${cols}</div>`;
 }
 
+// Show the top five AI models if there is enough activity to compare them.
 function renderModelBreakdown(modelTotals) {
   const entries = Object.entries(modelTotals || {})
     .sort((a, b) => b[1] - a[1])
@@ -387,6 +413,7 @@ function renderModelBreakdown(modelTotals) {
     </div>`;
 }
 
+// Create a few user-facing recommendations based on recent usage patterns.
 function buildSuggestions(account) {
   const suggestions = [];
   const total = account.totalCo2 || 0;
@@ -446,6 +473,7 @@ function buildSuggestions(account) {
   return suggestions.slice(0, 3);
 }
 
+// Render the suggestion cards into the popup DOM.
 function renderSuggestions(account) {
   const suggestions = buildSuggestions(account);
   return suggestions.map((item) => `
@@ -456,6 +484,7 @@ function renderSuggestions(account) {
   `).join("");
 }
 
+// Update the budget toggle, input, status text, and progress meter.
 function renderBudget(account) {
   const budget = account.budget;
   const limit = Number(budget.dailyGrams) || 50;
@@ -476,6 +505,7 @@ function renderBudget(account) {
     </div>`;
 }
 
+// Render the cloud auth and sync block based on local storage state.
 function renderCloudState(authState, syncState) {
   const authStatus = document.getElementById("cloud-auth-status");
   const syncStatus = document.getElementById("sync-status");
@@ -536,6 +566,7 @@ function renderCloudState(authState, syncState) {
   syncBtn.disabled = !signedIn || syncState.status === "syncing";
 }
 
+// Read the stored cloud auth and sync records for the popup.
 async function getCloudState() {
   const stored = await chrome.storage.local.get(["cloudAuth", "cloudSync"]);
   return {
@@ -544,6 +575,7 @@ async function getCloudState() {
   };
 }
 
+// Wrap runtime messaging in a promise so the event handlers stay linear.
 function sendRuntimeMessage(message) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(message, (response) => {
@@ -563,6 +595,7 @@ function sendRuntimeMessage(message) {
   });
 }
 
+// Trigger chart bar animations after the markup has been inserted.
 function animateBars(root = document) {
   requestAnimationFrame(() => {
     setTimeout(() => {
@@ -573,12 +606,14 @@ function animateBars(root = document) {
   });
 }
 
+// Save the selected device profile and update the UI highlight.
 function setDevice(btn) {
   document.querySelectorAll(".dev-btn").forEach((b) => b.classList.remove("sel"));
   btn.classList.add("sel");
   chrome.storage.local.set({ deviceType: btn.dataset.device });
 }
 
+// Restore the selected device profile when the popup opens.
 function restoreDevice() {
   chrome.storage.local.get("deviceType", ({ deviceType }) => {
     const type = deviceType || "laptop";
@@ -588,6 +623,7 @@ function restoreDevice() {
   });
 }
 
+// Wire up the popup buttons and settings controls.
 function wireEvents() {
   document.querySelectorAll(".dev-btn").forEach((btn) => {
     btn.addEventListener("click", () => setDevice(btn));
@@ -668,6 +704,7 @@ function wireEvents() {
   });
 }
 
+// Rebuild the entire popup from the latest storage snapshot.
 async function boot() {
   const d = await getAccountStorage();
   const account = normalizeAccountState(d.accounts[d.currentAccountId], d.currentAccountName);
@@ -696,6 +733,7 @@ async function boot() {
   restoreDevice();
 }
 
+// Re-render whenever relevant local storage records change.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && (
     changes.totalCo2 ||
@@ -712,5 +750,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// Prime the popup immediately after wiring the event handlers.
 wireEvents();
 boot();

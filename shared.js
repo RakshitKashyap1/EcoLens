@@ -1,4 +1,5 @@
 globalThis.EcoLensShared = (() => {
+  // Shared defaults and retention windows used by both the background page and the UI.
   const DEFAULT_ACCOUNT_ID = "default";
   const DEFAULT_ACCOUNT_NAME = "Personal account";
   const CLOUD_SYNC_ALARM = "cloudSync";
@@ -6,6 +7,7 @@ globalThis.EcoLensShared = (() => {
   const ACTIVITY_RETENTION_DAYS = 90;
   const DAILY_RETENTION_DAYS = 180;
 
+  // Enumerations keep the storage shape consistent across files.
   const MEASUREMENT_MODES = {
     MEASURED: "measured",
     ESTIMATED: "estimated",
@@ -28,6 +30,7 @@ globalThis.EcoLensShared = (() => {
     UNKNOWN: "unknown",
   };
 
+  // Convert any timestamp into a stable YYYY-MM-DD key for daily aggregation.
   function getDayKey(ts = Date.now()) {
     const d = new Date(ts);
     const y = d.getFullYear();
@@ -36,6 +39,7 @@ globalThis.EcoLensShared = (() => {
     return `${y}-${m}-${day}`;
   }
 
+  // Small helpers for building zeroed-out totals and merging partial snapshots.
   function buildEmptyBreakdownTotals() {
     return {
       network: 0,
@@ -51,6 +55,7 @@ globalThis.EcoLensShared = (() => {
     };
   }
 
+  // Daily snapshots keep per-site, per-model, and methodology totals together.
   function buildEmptyDailySnapshot() {
     return {
       totalCo2: 0,
@@ -62,6 +67,7 @@ globalThis.EcoLensShared = (() => {
     };
   }
 
+  // Normalize partial snapshot data so older storage records still render safely.
   function normalizeDailySnapshot(snapshot) {
     const base = buildEmptyDailySnapshot();
     const next = {
@@ -76,6 +82,7 @@ globalThis.EcoLensShared = (() => {
     return next;
   }
 
+  // Create a fresh account record with all fields the extension expects.
   function buildEmptyAccountState(now = Date.now()) {
     return {
       profile: {
@@ -99,6 +106,7 @@ globalThis.EcoLensShared = (() => {
     };
   }
 
+  // Convert incoming event data into a safe, fully-populated storage event.
   function normalizeUsageEvent(event = {}) {
     return {
       ts: event.ts || Date.now(),
@@ -129,6 +137,7 @@ globalThis.EcoLensShared = (() => {
     };
   }
 
+  // Merge stored account data with defaults so old records remain compatible.
   function normalizeAccountState(account, fallbackName = DEFAULT_ACCOUNT_NAME) {
     const base = buildEmptyAccountState();
     const next = {
@@ -158,6 +167,7 @@ globalThis.EcoLensShared = (() => {
     return next;
   }
 
+  // Reset the current day counters without deleting the account history itself.
   function resetAccountDay(account, now = Date.now()) {
     account.totalCo2 = 0;
     account.counts = {};
@@ -171,11 +181,13 @@ globalThis.EcoLensShared = (() => {
     return account;
   }
 
+  // Ensure the active day matches the current date, resetting if needed.
   function ensureActiveDay(account, now = Date.now()) {
     if (getDayKey(account.lastResetTs) === getDayKey(now)) return account;
     return resetAccountDay(account, now);
   }
 
+  // Trim old activity and daily totals to keep storage bounded.
   function pruneAccountHistory(account, now = Date.now(), options = {}) {
     const activityRetentionDays = options.activityRetentionDays ?? ACTIVITY_RETENTION_DAYS;
     const dailyRetentionDays = options.dailyRetentionDays ?? DAILY_RETENTION_DAYS;
@@ -194,6 +206,7 @@ globalThis.EcoLensShared = (() => {
     return account;
   }
 
+  // Apply one usage event to the account, updating totals and history in one pass.
   function applyUsageEvent(account, rawEvent) {
     const event = normalizeUsageEvent(rawEvent);
     ensureActiveDay(account, event.ts);
@@ -232,6 +245,7 @@ globalThis.EcoLensShared = (() => {
     return account;
   }
 
+  // Detect the most specific model label from visible UI text, or fall back.
   function detectModelFromText(text, catalog, fallback) {
     const haystack = String(text || "").toLowerCase();
     const ordered = [...catalog].sort((a, b) => {
@@ -258,6 +272,7 @@ globalThis.EcoLensShared = (() => {
     };
   }
 
+  // Read backend settings from config.js and expose a simple configured flag.
   function getBackendConfig() {
     const apiBaseUrl = globalThis.CONFIG?.API_BASE_URL?.trim?.() || "";
     const anonKey = globalThis.CONFIG?.SUPABASE_ANON_KEY?.trim?.() || "";
@@ -268,6 +283,7 @@ globalThis.EcoLensShared = (() => {
     };
   }
 
+  // Build the sync status object used by both the popup and background worker.
   function buildSyncState(overrides = {}) {
     return {
       configured: getBackendConfig().configured,
@@ -279,6 +295,7 @@ globalThis.EcoLensShared = (() => {
     };
   }
 
+  // Format timestamps for the popup and sync status UI.
   function fmtDateTime(ts) {
     if (!ts) return "never";
     return new Date(ts).toLocaleString();

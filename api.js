@@ -2,6 +2,7 @@ globalThis.EcoLensApi = (() => {
   const { getBackendConfig } = globalThis.EcoLensShared;
   const { getAuthHeaders } = globalThis.EcoLensAuth;
 
+  // Wrap fetch so backend calls share the same config and error handling.
   async function fetchJson(path, { method = "GET", body, authState } = {}) {
     const config = getBackendConfig();
     if (!config.configured) {
@@ -33,6 +34,7 @@ globalThis.EcoLensApi = (() => {
     return data;
   }
 
+  // Start a magic-link login flow for the supplied email address.
   function startEmailAuth(email) {
     return fetchJson("/auth/magic-link/start", {
       method: "POST",
@@ -40,6 +42,7 @@ globalThis.EcoLensApi = (() => {
     });
   }
 
+  // Verify the one-time code and exchange it for a session.
   function verifyEmailAuth(email, code) {
     return fetchJson("/auth/magic-link/verify", {
       method: "POST",
@@ -47,6 +50,7 @@ globalThis.EcoLensApi = (() => {
     });
   }
 
+  // Pull the current profile so the popup can reflect backend account state.
   function fetchProfile(authState) {
     return fetchJson("/me", {
       method: "GET",
@@ -54,6 +58,7 @@ globalThis.EcoLensApi = (() => {
     });
   }
 
+  // Push the daily summary payload to the backend.
   function syncDailyStats(payload, authState) {
     return fetchJson("/sync/daily-stats", {
       method: "POST",
@@ -62,6 +67,7 @@ globalThis.EcoLensApi = (() => {
     });
   }
 
+  // Push recent activity events for social features or server-side analytics.
   function syncActivityEvents(payload, authState) {
     return fetchJson("/sync/activity-events", {
       method: "POST",

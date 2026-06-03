@@ -2,6 +2,7 @@
 //  EcoLens - content.js
 // ============================================================
 
+// Baseline energy estimates and device profiles used when a site does not expose measurements.
 const BASE = {
   google: { kWh: 0.0003, label: "Google Search", perUnit: "search" },
   chatgpt: { kWh: 0.003, label: "ChatGPT", perUnit: "query" },
@@ -22,6 +23,7 @@ const BASE = {
   },
 };
 
+// Heuristic model catalogs let us recognize common labels in visible UI text.
 const CHATGPT_MODELS = [
   { id: "gpt-3.5", label: "GPT-3.5", kWh: 0.0003, aliases: ["gpt-3.5", "3.5"] },
   { id: "gpt-4o-mini", label: "GPT-4o mini", kWh: 0.0006, aliases: ["gpt-4o mini", "4o mini"] },
@@ -51,6 +53,7 @@ const PERPLEXITY_MODELS = [
   { id: "perplexity-reasoning", label: "Reasoning", kWh: 0.0038, aliases: ["reasoning", "deep research"] },
 ];
 
+// Site definitions keep matching, styling, and behavior in one place.
 const SITES = {
   google: {
     match: () => location.href.includes("google.com/search"),
@@ -121,10 +124,12 @@ const {
   detectModelFromText,
 } = globalThis.EcoLensShared;
 
+// Shared helpers for account loading and site classification.
 function isAiSiteKey(siteKey) {
   return siteKey === "chatgpt" || siteKey === "claude" || siteKey === "gemini" || siteKey === "perplexity";
 }
 
+// Mirror the background-page account loading logic inside the content script.
 function getAccountStorage() {
   return new Promise((resolve) => {
     chrome.storage.local.get(
@@ -175,6 +180,7 @@ function getAccountStorage() {
   });
 }
 
+// Persist the active account summary after a new usage event is recorded.
 function saveAccountStorage(currentAccountId, currentAccountName, accounts) {
   const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
   accounts[currentAccountId] = account;
@@ -198,6 +204,7 @@ function saveAccountStorage(currentAccountId, currentAccountName, accounts) {
   });
 }
 
+// Identify which supported site is currently open.
 function detectSite() {
   for (const [key, cfg] of Object.entries(SITES)) {
     if (cfg.match()) return { key, ...cfg };
@@ -205,6 +212,7 @@ function detectSite() {
   return null;
 }
 
+// Read the last known grid intensity so the badge can show the source context.
 function getGridIntensity() {
   return new Promise((resolve) => {
     chrome.storage.local.get(["gridIntensity", "gridZone", "gridSource"], (d) => {
@@ -217,6 +225,7 @@ function getGridIntensity() {
   });
 }
 
+// Prefer battery-derived energy if available, otherwise use the selected device type.
 async function getDeviceEnergyInfo() {
   if ("getBattery" in navigator) {
     try {
@@ -248,6 +257,7 @@ async function getDeviceEnergyInfo() {
   });
 }
 
+// Ask the background worker how many bytes have been observed for the current tab.
 function queryTabBytes() {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage({ type: "GET_TAB_BYTES" }, (response) => {
@@ -256,12 +266,14 @@ function queryTabBytes() {
   });
 }
 
+// Reset the background worker's byte counter when we start a fresh session.
 function resetTabBytes() {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage({ type: "RESET_TAB_BYTES" }, () => resolve());
   });
 }
 
+// Pull together visible labels and attributes so we can guess the active AI model.
 function collectModelDetectionText() {
   const selectors = [
     "button",
@@ -290,6 +302,7 @@ function collectModelDetectionText() {
     .toLowerCase();
 }
 
+// Each provider gets its own model detector because the visible labels differ.
 function detectChatGptModel() {
   return detectModelFromText(collectModelDetectionText(), CHATGPT_MODELS, {
     provider: "openai",
@@ -300,6 +313,7 @@ function detectChatGptModel() {
   });
 }
 
+// Detect Claude model names from visible UI text.
 function detectClaudeModel() {
   return detectModelFromText(collectModelDetectionText(), CLAUDE_MODELS, {
     provider: "anthropic",
@@ -310,6 +324,7 @@ function detectClaudeModel() {
   });
 }
 
+// Detect Gemini model names from visible UI text.
 function detectGeminiModel() {
   return detectModelFromText(collectModelDetectionText(), GEMINI_MODELS, {
     provider: "google",
@@ -320,6 +335,7 @@ function detectGeminiModel() {
   });
 }
 
+// Detect Perplexity model names from visible UI text.
 function detectPerplexityModel() {
   return detectModelFromText(collectModelDetectionText(), PERPLEXITY_MODELS, {
     provider: "perplexity",
@@ -330,6 +346,7 @@ function detectPerplexityModel() {
   });
 }
 
+// Dispatch to the right provider-specific model detector for the current site.
 function detectAiModel(site) {
   if (site.key === "chatgpt") return detectChatGptModel();
   if (site.key === "claude") return detectClaudeModel();
@@ -338,6 +355,7 @@ function detectAiModel(site) {
   return null;
 }
 
+// Convert bytes, model cost, device cost, and grid intensity into a CO2 estimate.
 function buildEnergyBreakdown({ site, bytes, elapsedHours, aiModel, deviceInfo, grid }) {
   const deviceHours = site.streaming ? elapsedHours : (1 / 60);
   const measuredNetworkKwh = bytes > BYTES_MEASURED_THRESHOLD
@@ -375,6 +393,7 @@ function buildEnergyBreakdown({ site, bytes, elapsedHours, aiModel, deviceInfo, 
   };
 }
 
+// Run the whole calculation pipeline in parallel so the badge can render quickly.
 async function calcCo2(site, elapsedHours = 0, aiModel = null) {
   const [grid, deviceInfo, bytes] = await Promise.all([
     getGridIntensity(),
@@ -400,6 +419,7 @@ async function calcCo2(site, elapsedHours = 0, aiModel = null) {
   };
 }
 
+// Real-world equivalence phrases help make the gram values easier to understand.
 const EQUIVS = [
   { threshold: 0, text: (g) => `${(g / 0.007 * 60).toFixed(0)} sec of a LED bulb` },
   { threshold: 1, text: (g) => `${(g / 0.3).toFixed(1)} Google searches` },
@@ -408,6 +428,7 @@ const EQUIVS = [
   { threshold: 100, text: (g) => `${(g / 36).toFixed(1)} hrs of Netflix` },
 ];
 
+// Pick the best analogy for the current amount of CO2.
 function getEquiv(grams) {
   let fn = EQUIVS[0].text;
   for (const e of EQUIVS) {
@@ -416,6 +437,7 @@ function getEquiv(grams) {
   return fn(grams);
 }
 
+// Format grams into a compact, human-readable value for the badge.
 function fmt(g) {
   if (g < 0.1) return `${g.toFixed(3)}g`;
   if (g < 10) return `${g.toFixed(2)}g`;
@@ -423,18 +445,21 @@ function fmt(g) {
   return `${(g / 1000).toFixed(2)} kg`;
 }
 
+// Format energy usage values in a compact form for the methodology section.
 function fmtKwh(kwh) {
   if (kwh <= 0) return "0 kWh";
   if (kwh < 0.01) return `${kwh.toFixed(4)} kWh`;
   return `${kwh.toFixed(3)} kWh`;
 }
 
+// Format network bytes so the badge can show whether transfer data was measured.
 function formatBytes(bytes) {
   if (bytes > 1e6) return `${(bytes / 1e6).toFixed(1)} MB transferred`;
   if (bytes > 1000) return `${(bytes / 1000).toFixed(0)} KB transferred`;
   return "baseline estimate";
 }
 
+// Translate confidence flags into the small labels shown in the badge.
 function formatModelConfidence(confidence) {
   return confidence === MODEL_CONFIDENCE.DETECTED ? "model detected" : "model default";
 }
@@ -443,6 +468,7 @@ function formatGridSource(source) {
   return source === GRID_SOURCES.LIVE ? "live grid" : "regional average";
 }
 
+// Inject the badge stylesheet once so the in-page UI is self-contained.
 function injectStyles() {
   if (document.getElementById("ecolens-styles")) return;
   const s = document.createElement("style");
@@ -506,6 +532,7 @@ function injectStyles() {
   document.head.appendChild(s);
 }
 
+// Build the floating badge DOM from the latest measurement result.
 function buildBadge(site, result, elapsedHours = 0) {
   const { grams, grid, bytes, measurementMode, aiModel, deviceInfo } = result;
   const pct = Math.min((grams / 36) * 100, 100).toFixed(1);
@@ -579,6 +606,7 @@ function buildBadge(site, result, elapsedHours = 0) {
   return { badge, pct };
 }
 
+// Update only the main number when the badge is already on screen.
 function updateBadgeNumber(grams, color) {
   const el = document.getElementById("el-co2-num");
   if (el) {
@@ -587,6 +615,7 @@ function updateBadgeNumber(grams, color) {
   }
 }
 
+// Update the rest of the badge fields after a fresh measurement.
 function updateBadgeMeta({ result, elapsedHours, site }) {
   const dataEl = document.querySelector("#ecolens-badge .el-data-val");
   const likeEl = document.querySelector("#ecolens-badge .el-like-val");
@@ -625,6 +654,7 @@ function updateBadgeMeta({ result, elapsedHours, site }) {
   if (totalEl) totalEl.textContent = fmtKwh(result.totalKwhUsed);
 }
 
+// Persist one usage event through the shared account normalization pipeline.
 function recordUsageEvent(event) {
   return getAccountStorage().then(({ currentAccountId, currentAccountName, accounts }) => {
     const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
@@ -635,6 +665,7 @@ function recordUsageEvent(event) {
   });
 }
 
+// Dismiss the badge with a small exit animation instead of removing it instantly.
 function dismiss() {
   const badge = document.getElementById("ecolens-badge");
   if (!badge) return;
@@ -642,6 +673,7 @@ function dismiss() {
   setTimeout(() => badge.remove(), 300);
 }
 
+// Track a streaming session across visibility changes so we do not overcount.
 let streamingInterval = null;
 let sessionVisibleMs = 0;
 let sessionVisibleStartedAt = null;
@@ -651,11 +683,13 @@ let lastUrl = location.href;
 let aiQueryTrackerBound = false;
 let lastAiSubmitAt = 0;
 
+// Combine paused and currently visible time into a total streaming duration.
 function getElapsedStreamingHours() {
   const liveVisibleMs = sessionVisibleStartedAt ? Date.now() - sessionVisibleStartedAt : 0;
   return (sessionVisibleMs + liveVisibleMs) / 3_600_000;
 }
 
+// Stop the repeating streaming tick and optionally add the visible time to history.
 function stopStreamingTicker(trackElapsed = true) {
   if (streamingInterval) {
     clearInterval(streamingInterval);
@@ -668,6 +702,7 @@ function stopStreamingTicker(trackElapsed = true) {
   }
 }
 
+// Clear the current streaming session state before starting a new one.
 function resetStreamingSession() {
   stopStreamingTicker(false);
   sessionVisibleMs = 0;
@@ -678,6 +713,7 @@ function resetStreamingSession() {
   lastAiSubmitAt = 0;
 }
 
+// Recompute the streaming estimate and record the incremental delta.
 async function updateStreamingUsage(site) {
   const elapsedHours = getElapsedStreamingHours();
   const result = await calcCo2(site, elapsedHours);
@@ -710,6 +746,7 @@ async function updateStreamingUsage(site) {
   lastStreamingGrams = result.grams;
 }
 
+// Start periodic updates for streaming pages while they remain visible.
 function startStreamingTicker(site) {
   activeStreamingSite = site;
   sessionVisibleStartedAt = Date.now();
@@ -720,6 +757,7 @@ function startStreamingTicker(site) {
   }, STREAM_INTERVAL_MS);
 }
 
+// Detect whether a click target is the send/submit control for an AI assistant.
 function isAiSendButton(target) {
   const button = target?.closest?.("button");
   if (!button) return false;
@@ -738,6 +776,7 @@ function isAiSendButton(target) {
   );
 }
 
+// Detect Enter-to-send behavior in textareas and contenteditable input areas.
 function isAiInputSubmit(event) {
   const target = event.target;
   if (!target) return false;
@@ -746,6 +785,7 @@ function isAiInputSubmit(event) {
   return isTypingField && event.key === "Enter" && !event.shiftKey && !event.isComposing;
 }
 
+// Listen for AI submissions and record one tracked event per prompt.
 function bindAiQueryTracker(site) {
   if (aiQueryTrackerBound) return;
   aiQueryTrackerBound = true;
@@ -798,6 +838,7 @@ function bindAiQueryTracker(site) {
   });
 }
 
+// Initialize the current page, inject the badge, and record the first event.
 async function init() {
   const site = detectSite();
   if (!site || document.getElementById("ecolens-badge")) return;
@@ -860,6 +901,7 @@ async function init() {
   }
 }
 
+// Pause and resume streaming tracking when the tab visibility changes.
 document.addEventListener("visibilitychange", () => {
   if (!activeStreamingSite) return;
 
@@ -873,6 +915,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+// Reinitialize tracking when the app changes routes without a full page load.
 const navObserver = new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
@@ -882,12 +925,15 @@ const navObserver = new MutationObserver(() => {
   }
 });
 
+// Handle back/forward navigation and ensure the badge starts after the page settles.
 navObserver.observe(document.documentElement, { subtree: true, childList: true });
 window.addEventListener("popstate", () => setTimeout(init, 800));
+// Reset ephemeral session counters before the page unloads.
 window.addEventListener("beforeunload", () => {
   resetStreamingSession();
 });
 
+// Support both cold loads and already-ready pages.
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init);
 } else {

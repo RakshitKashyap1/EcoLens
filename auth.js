@@ -2,6 +2,7 @@ globalThis.EcoLensAuth = (() => {
   const AUTH_STORAGE_KEY = "cloudAuth";
   const SESSION_TTL_MS = 55 * 60 * 1000;
 
+  // Build the canonical signed-out auth shape so storage stays predictable.
   function buildSignedOutState(overrides = {}) {
     return {
       signedIn: false,
@@ -16,10 +17,12 @@ globalThis.EcoLensAuth = (() => {
     };
   }
 
+  // Normalize partial auth records into the full auth state shape.
   function normalizeAuthState(authState) {
     return buildSignedOutState(authState || {});
   }
 
+  // Treat a session as valid only if it still has a usable access token.
   function isSessionValid(authState) {
     return Boolean(
       authState?.signedIn &&
@@ -29,6 +32,7 @@ globalThis.EcoLensAuth = (() => {
     );
   }
 
+  // Convert a backend session response into the local auth state format.
   function buildSessionPayload(session, emailFallback = null) {
     return normalizeAuthState({
       signedIn: true,
@@ -44,6 +48,7 @@ globalThis.EcoLensAuth = (() => {
     });
   }
 
+  // Build request headers, including the anon key and bearer token when present.
   function getAuthHeaders(authState, anonKey = "") {
     const headers = {
       "Content-Type": "application/json",

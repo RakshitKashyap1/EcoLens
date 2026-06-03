@@ -45,6 +45,12 @@ const {
 } = globalThis.EcoLensAuth;
 const { startEmailAuth, verifyEmailAuth, fetchProfile, syncDailyStats, syncActivityEvents } = globalThis.EcoLensApi;
 
+function normalizeCountryZone(value) {
+  const zone = String(value || "").trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(zone) ? zone : "";
+}
+
+// Keep a tiny helper for zeroed daily snapshots because the worker writes them often.
 function buildEmptyDailySnapshot() {
   return {
     totalCo2: 0,
@@ -60,6 +66,7 @@ function buildEmptyDailySnapshot() {
   };
 }
 
+// Load the active account, migrating older flat storage into the new account map if needed.
 async function getAccountStorage() {
   const stored = await chrome.storage.local.get([
     "currentAccountId",
@@ -113,6 +120,7 @@ async function getCloudStorage() {
   };
 }
 
+// Persist auth and sync metadata together so the popup always sees a consistent view.
 async function saveCloudStorage(authState, syncState) {
   await chrome.storage.local.set({
     [AUTH_STORAGE_KEY]: normalizeAuthState(authState),
@@ -120,6 +128,7 @@ async function saveCloudStorage(authState, syncState) {
   });
 }
 
+// Apply a partial sync-state patch and keep the backend configuration flag current.
 async function updateSyncState(patch) {
   const { authState, syncState } = await getCloudStorage();
   const nextSyncState = buildSyncState({
@@ -131,6 +140,7 @@ async function updateSyncState(patch) {
   return nextSyncState;
 }
 
+// Save the active account back to storage, mirroring the active summary fields.
 async function saveAccountStorage(currentAccountId, currentAccountName, accounts) {
   const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
   accounts[currentAccountId] = account;
@@ -149,6 +159,7 @@ async function saveAccountStorage(currentAccountId, currentAccountName, accounts
   });
 }
 
+// Build the last 30 days of daily totals and events for cloud upload.
 function buildSyncPayload(accountId, account) {
   const now = Date.now();
   const cutoffKey = getDayKey(now - (CLOUD_SYNC_BATCH_DAYS * 24 * 60 * 60 * 1000));
@@ -200,6 +211,7 @@ function buildSyncPayload(accountId, account) {
   return { dailyStats, events };
 }
 
+// Sync the local account to the backend when cloud sync is configured and signed in.
 async function syncCurrentAccount(reason = "background") {
   const backendConfig = getBackendConfig();
   const { authState, syncState } = await getCloudStorage();
@@ -276,6 +288,7 @@ async function syncCurrentAccount(reason = "background") {
   }
 }
 
+// Start the email-code flow and remember which address is waiting for verification.
 async function startCloudAuth(email) {
   const { authState, syncState } = await getCloudStorage();
   await startEmailAuth(email);
@@ -289,6 +302,7 @@ async function startCloudAuth(email) {
   return { ok: true };
 }
 
+// Finish the login flow, store the new session, and sync local data right away.
 async function verifyCloudAuth(email, code) {
   const session = await verifyEmailAuth(email, code);
   const nextAuthState = buildSessionPayload(session, email);
@@ -302,6 +316,7 @@ async function verifyCloudAuth(email, code) {
   return syncCurrentAccount("auth_verify");
 }
 
+// Clear auth state so the popup and background worker return to signed-out mode.
 async function clearCloudAuth() {
   await saveCloudStorage(buildSignedOutState(), {
     status: "idle",
@@ -312,6 +327,7 @@ async function clearCloudAuth() {
   return { ok: true };
 }
 
+// Refresh the backend profile details without changing the active session token.
 async function refreshCloudProfile() {
   const { authState, syncState } = await getCloudStorage();
   if (!isSessionValid(authState)) {
@@ -328,10 +344,11 @@ async function refreshCloudProfile() {
   return { ok: true };
 }
 
+// Use a country-based fallback when live grid data is unavailable or disabled.
 async function setFallbackGridIntensity() {
   try {
     const geoRes = await fetch("https://ipapi.co/country/");
-    const zone = (await geoRes.text()).trim();
+    const zone = normalizeCountryZone(await geoRes.text()) || "DEFAULT";
     const intensity = (GRID_FALLBACKS[zone] ?? GRID_FALLBACKS.DEFAULT) / 1000;
     await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: GRID_SOURCES.FALLBACK });
     console.log(`[EcoLens] Fallback grid: ${zone} = ${intensity} kg/kWh`);
@@ -344,6 +361,7 @@ async function setFallbackGridIntensity() {
   }
 }
 
+// Resolve the current carbon intensity from Electricity Maps when a key exists.
 async function fetchGridIntensity() {
   if (!ELECTRICITY_MAPS_KEY) {
     await setFallbackGridIntensity();
@@ -353,7 +371,7 @@ async function fetchGridIntensity() {
   try {
     const geoRes = await fetch("https://ipapi.co/json/");
     const geo = await geoRes.json();
-    const zone = geo.country_code || "DEFAULT";
+    const zone = normalizeCountryZone(geo.country_code) || "DEFAULT";
 
     const emRes = await fetch(
       `https://api.electricitymap.org/v3/carbon-intensity/latest?zone=${zone}`,
@@ -371,11 +389,13 @@ async function fetchGridIntensity() {
   }
 }
 
+// Compare timestamps against today so we know when to roll the daily counters over.
 function isSameDay(ts) {
   if (!ts) return false;
   return getDayKey(ts) === getDayKey(Date.now());
 }
 
+// Reset today's totals when the stored day no longer matches the current day.
 async function maybeResetDaily() {
   const { currentAccountId, currentAccountName, accounts } = await getAccountStorage();
   const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
@@ -388,6 +408,7 @@ async function maybeResetDaily() {
   console.log("[EcoLens] Daily reset.");
 }
 
+// Remove stale activity and daily history from every saved account.
 async function pruneAllAccounts() {
   const { currentAccountId, currentAccountName, accounts } = await getAccountStorage();
   Object.keys(accounts).forEach((accountId) => {
@@ -396,6 +417,7 @@ async function pruneAllAccounts() {
   await saveAccountStorage(currentAccountId, currentAccountName, accounts);
 }
 
+// Fire budget notifications once users cross warning or limit thresholds.
 async function maybeSendBudgetAlert() {
   const { currentAccountId, currentAccountName, accounts } = await getAccountStorage();
   const account = normalizeAccountState(accounts[currentAccountId], currentAccountName);
@@ -435,6 +457,7 @@ async function maybeSendBudgetAlert() {
   }
 }
 
+// Reset byte counters when a new top-level page starts loading.
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (details.tabId < 0 || details.type !== "main_frame") return;
@@ -443,6 +466,7 @@ chrome.webRequest.onBeforeRequest.addListener(
   { urls: ["<all_urls>"] }
 );
 
+// Capture content-length headers so we can estimate transferred bytes per tab.
 chrome.webRequest.onCompleted.addListener(
   (details) => {
     if (details.tabId < 0) return;
@@ -458,6 +482,7 @@ chrome.webRequest.onCompleted.addListener(
   ["responseHeaders"]
 );
 
+// Handle messages from the content scripts and popup UI.
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.type === "GET_TAB_BYTES") {
     reply({ bytes: tabBytes[sender.tab?.id] || 0 });
@@ -510,6 +535,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   return false;
 });
 
+// React to account/storage changes by resetting daily state and rechecking sync.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (!(changes.accounts || changes.totalCo2 || changes.currentAccountId)) return;
@@ -518,10 +544,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   syncCurrentAccount("storage_change");
 });
 
+// Drop byte totals for tabs that no longer exist.
 chrome.tabs.onRemoved.addListener((tabId) => {
   delete tabBytes[tabId];
 });
 
+// Run setup once when the extension is installed or updated.
 chrome.runtime.onInstalled.addListener(async () => {
   const { currentAccountId, currentAccountName, accounts } = await getAccountStorage();
   accounts[currentAccountId] = normalizeAccountState(accounts[currentAccountId], currentAccountName);
@@ -530,6 +558,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await fetchGridIntensity();
 });
 
+// Run the same maintenance when Chrome itself starts up.
 chrome.runtime.onStartup.addListener(async () => {
   await maybeResetDaily();
   await pruneAllAccounts();
@@ -539,6 +568,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await syncCurrentAccount("startup");
 });
 
+// Keep grid data fresh, prune old history, and sync in the background.
 chrome.alarms.create("refreshGrid", { periodInMinutes: 120 });
 chrome.alarms.create("dailyMaintenance", { periodInMinutes: 60 });
 chrome.alarms.create(CLOUD_SYNC_ALARM, { periodInMinutes: 30 });
