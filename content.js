@@ -58,49 +58,49 @@ const SITES = {
   google: {
     match: () => location.href.includes("google.com/search"),
     base: BASE.google,
-    color: "#5dbf72",
+    color: "#52B788",
     streaming: false,
   },
   chatgpt: {
     match: () => location.href.includes("chat.openai.com") || location.href.includes("chatgpt.com"),
     base: BASE.chatgpt,
-    color: "#EF9F27",
+    color: "#D4A84B",
     streaming: false,
   },
   claude: {
     match: () => location.href.includes("claude.ai"),
     base: BASE.claude,
-    color: "#D97706",
+    color: "#C8572A",
     streaming: false,
   },
   gemini: {
     match: () => location.href.includes("gemini.google.com"),
     base: BASE.gemini,
-    color: "#4F86F7",
+    color: "#40916C",
     streaming: false,
   },
   perplexity: {
     match: () => location.href.includes("perplexity.ai"),
     base: BASE.perplexity,
-    color: "#4FD1C5",
+    color: "#B8895A",
     streaming: false,
   },
   netflix: {
     match: () => location.href.includes("netflix.com/watch"),
     base: BASE.netflix,
-    color: "#E24B4A",
+    color: "#C8572A",
     streaming: true,
   },
   youtube: {
     match: () => location.href.includes("youtube.com/watch") || location.href.includes("youtu.be"),
     base: BASE.youtube,
-    color: "#E24B4A",
+    color: "#C8572A",
     streaming: true,
   },
   spotify: {
     match: () => location.href.includes("open.spotify.com"),
     base: BASE.spotify,
-    color: "#1ED760",
+    color: "#52B788",
     streaming: true,
   },
 };
@@ -484,8 +484,8 @@ function injectStyles() {
       to { opacity:0; transform:translateY(10px) scale(0.94); }
     }
     @keyframes el-pulse {
-      0%,100% { box-shadow:0 0 0 0 rgba(93,191,114,0); }
-      50% { box-shadow:0 0 0 5px rgba(93,191,114,0.12); }
+      0%,100% { box-shadow:0 0 0 0 rgba(82,183,136,0); }
+      50% { box-shadow:0 0 0 5px rgba(82,183,136,0.12); }
     }
     @keyframes el-dot {
       0%,100% { opacity:1; transform:scale(1); }
@@ -493,8 +493,8 @@ function injectStyles() {
     }
     #ecolens-badge {
       position:fixed; bottom:22px; right:22px; z-index:2147483647;
-      min-width:260px; max-width:300px; background:#0a0e0b;
-      border-radius:14px; border:1px solid #2a4a2c;
+      min-width:260px; max-width:300px; background:linear-gradient(180deg,#FFFFFF 0%,#F5F0E8 100%);
+      border-radius:14px; border:1px solid #8B5E3C;
       padding:12px 16px 11px;
       font-family:'DM Mono','Courier New',monospace;
       cursor:pointer; user-select:none;
@@ -504,31 +504,31 @@ function injectStyles() {
     #ecolens-badge.hiding { animation:el-out 0.28s ease forwards; }
     #ecolens-badge .el-hd { display:flex; align-items:center; gap:6px; margin-bottom:8px; }
     #ecolens-badge .el-dot { width:7px;height:7px;border-radius:50%;animation:el-dot 2s ease-in-out infinite; }
-    #ecolens-badge .el-brand { font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#5dbf72;font-weight:500; }
-    #ecolens-badge .el-site-tag { font-size:10px;color:#3a5a3c;margin-left:auto; }
+    #ecolens-badge .el-brand { font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#40916C;font-weight:500; }
+    #ecolens-badge .el-site-tag { font-size:10px;color:#4A6355;margin-left:auto; }
     #ecolens-badge .el-co2 { font-size:26px;font-weight:500;line-height:1;margin-bottom:3px; }
-    #ecolens-badge .el-unit { font-size:10px;color:#4a6b4c;margin-bottom:9px; }
-    #ecolens-badge .el-divider { height:1px;background:#1e2e1f;margin:0 -16px 9px; }
+    #ecolens-badge .el-unit { font-size:10px;color:#2D6A4F;margin-bottom:9px; }
+    #ecolens-badge .el-divider { height:1px;background:#EDE8DF;margin:0 -16px 9px; }
     #ecolens-badge .el-row { display:flex;align-items:baseline;gap:6px;margin-bottom:4px; }
-    #ecolens-badge .el-label { font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#3a5a3c;flex:1; }
-    #ecolens-badge .el-val { font-size:11px;color:#7a9b7c; text-align:right; }
+    #ecolens-badge .el-label { font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#2D6A4F;flex:1; }
+    #ecolens-badge .el-val { font-size:11px;color:#4A6355; text-align:right; }
     #ecolens-badge .el-pills { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; }
     #ecolens-badge .el-pill {
       display:inline-block;font-size:9px;padding:1px 6px;border-radius:100px;
-      background:#0d1f0e;color:#5dbf72;border:1px solid #2a4a2c;
+      background:#F5F0E8;color:#1B4332;border:1px solid #8B5E3C;
     }
     #ecolens-badge .el-method {
-      margin-top:8px; padding:7px 8px; border:1px solid #182418; border-radius:8px;
-      background:#0d130e;
+      margin-top:8px; padding:7px 8px; border:1px solid #D9BFA0; border-radius:8px;
+      background:#FDFAF6;
     }
     #ecolens-badge .el-method-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 10px; }
-    #ecolens-badge .el-mini { font-size:9px; color:#3a5a3c; text-transform:uppercase; letter-spacing:.06em; }
-    #ecolens-badge .el-mini-val { font-size:10px; color:#7a9b7c; }
-    #ecolens-badge .el-bar-track { height:3px;background:#111a12;border-radius:100px;overflow:hidden;margin-top:8px; }
+    #ecolens-badge .el-mini { font-size:9px; color:#2D6A4F; text-transform:uppercase; letter-spacing:.06em; }
+    #ecolens-badge .el-mini-val { font-size:10px; color:#4A6355; }
+    #ecolens-badge .el-bar-track { height:3px;background:#EDE8DF;border-radius:100px;overflow:hidden;margin-top:8px; }
     #ecolens-badge .el-bar-fill { height:100%;border-radius:100px;width:0%;transition:width 1.1s cubic-bezier(0.25,1,0.5,1); }
-    #ecolens-badge .el-compare { display:flex;justify-content:space-between;font-size:9px;color:#2a4a2c;margin-top:3px; }
-    #ecolens-badge .el-close { position:absolute;top:9px;right:11px;font-size:14px;color:#2a4a2c;padding:2px 5px;border-radius:4px;line-height:1;transition:color .15s,background .15s; }
-    #ecolens-badge .el-close:hover { color:#5dbf72;background:#0f1a10; }
+    #ecolens-badge .el-compare { display:flex;justify-content:space-between;font-size:9px;color:#8B5E3C;margin-top:3px; }
+    #ecolens-badge .el-close { position:absolute;top:9px;right:11px;font-size:14px;color:#8B5E3C;padding:2px 5px;border-radius:4px;line-height:1;transition:color .15s,background .15s; }
+    #ecolens-badge .el-close:hover { color:#C8572A;background:#F5F0E8; }
   `;
   document.head.appendChild(s);
 }

@@ -4,14 +4,14 @@
 
 // Metadata used to label and color the supported sites in the popup.
 const SITE_META = {
-  google: { label: "Google Search", color: "#5dbf72", bg: "#0d1f0e" },
-  chatgpt: { label: "ChatGPT", color: "#EF9F27", bg: "#1f180a" },
-  claude: { label: "Claude", color: "#D97706", bg: "#211406" },
-  gemini: { label: "Gemini", color: "#4F86F7", bg: "#0a1530" },
-  perplexity: { label: "Perplexity", color: "#4FD1C5", bg: "#081c1a" },
-  netflix: { label: "Netflix", color: "#E24B4A", bg: "#1f0a0a" },
-  youtube: { label: "YouTube", color: "#E24B4A", bg: "#1f0a0a" },
-  spotify: { label: "Spotify", color: "#1ED760", bg: "#061a0e" },
+  google: { label: "Google Search", color: "#52B788", bg: "#F5F0E8" },
+  chatgpt: { label: "ChatGPT", color: "#D4A84B", bg: "#F5F0E8" },
+  claude: { label: "Claude", color: "#C8572A", bg: "#F5F0E8" },
+  gemini: { label: "Gemini", color: "#40916C", bg: "#F5F0E8" },
+  perplexity: { label: "Perplexity", color: "#B8895A", bg: "#EDE8DF" },
+  netflix: { label: "Netflix", color: "#C8572A", bg: "#F5F0E8" },
+  youtube: { label: "YouTube", color: "#C8572A", bg: "#F5F0E8" },
+  spotify: { label: "Spotify", color: "#52B788", bg: "#F5F0E8" },
 };
 
 const {
@@ -184,9 +184,9 @@ function renderGridStrip({ intensity, zone, source }) {
   const src = document.getElementById("grid-source");
   const zoneLabel = formatGridZoneLabel(zone, source);
 
-  const dotColor = gPerKwh < 100 ? "#5dbf72"
-    : gPerKwh < 300 ? "#EF9F27"
-    : "#E24B4A";
+  const dotColor = gPerKwh < 100 ? "#52B788"
+    : gPerKwh < 300 ? "#D4A84B"
+    : "#C8572A";
 
   if (dot) dot.style.background = dotColor;
   if (val) val.textContent = `${gPerKwh} g/kWh - ${zoneLabel}`;
@@ -341,7 +341,7 @@ function renderLatestActivity(account) {
   }
 
   const event = normalizeUsageEvent(rawEvent);
-  const site = SITE_META[event.siteKey] || { label: event.siteKey, color: "#7a9b7c" };
+  const site = SITE_META[event.siteKey] || { label: event.siteKey, color: "#4A6355" };
   const sep = " - ";
   const modelLine = event.modelLabel ? `<div class="muted-text">Model: ${event.modelLabel}${sep}${labelModelConfidence(event.modelConfidence)}</div>` : "";
 
@@ -412,7 +412,7 @@ function renderModelBreakdown(modelTotals) {
                 <span class="model-g">${fmt(grams)}</span>
               </div>
               <div class="bar-track">
-                <div class="bar-fill" data-pct="${pct}" style="background:#EF9F27"></div>
+                <div class="bar-fill" data-pct="${pct}" style="background:#B8895A"></div>
               </div>
             </div>
           </div>`;
@@ -497,7 +497,7 @@ function renderBudget(account) {
   const limit = Number(budget.dailyGrams) || 50;
   const used = account.totalCo2 || 0;
   const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-  const tone = pct >= 100 ? "#E24B4A" : pct >= 80 ? "#EF9F27" : "#5dbf72";
+  const tone = pct >= 100 ? "#C8572A" : pct >= 80 ? "#D4A84B" : "#52B788";
 
   document.getElementById("budget-enabled").checked = !!budget.enabled;
   document.getElementById("budget-grams").value = String(limit);
