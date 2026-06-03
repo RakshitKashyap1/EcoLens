@@ -6,9 +6,10 @@ EcoLens is a Manifest V3 Chrome extension that makes the carbon cost of everyday
 
 - Tracks emissions on supported sites while you browse.
 - Shows an in-page badge with live CO2 estimates, grid intensity, data transferred, and familiar real-world equivalents.
+- Sanitizes grid-zone data before display so stale storage or network fallback pages do not leak into the UI.
 - Detects AI model variants on supported assistants and keeps a model-level emissions breakdown.
 - Stores daily totals, per-site totals, charts, and recent activity locally in `chrome.storage.local`.
-- Offers an extension popup with summaries, trend charts, budgets, and personalized reduction tips.
+- Offers an extension popup with summaries, trend charts, budgets, diagnostics, and personalized reduction tips.
 - Optionally syncs recent stats to a backend for signed-in experiences like social features, challenges, and leaderboards.
 
 ## Supported Platforms
@@ -37,6 +38,7 @@ EcoLens currently injects tracking on:
 - Uses live carbon intensity from Electricity Maps when configured.
 - Falls back to regional averages based on detected country.
 - Stores the active grid zone and source so the popup can show whether data is live or fallback.
+- Normalizes grid-zone labels in storage and display so challenge-page HTML cannot appear as the region.
 
 ### Data + device energy model
 
@@ -68,6 +70,16 @@ EcoLens stores lightweight provenance for each tracked event so you can inspect:
 - `networkBytesUsed`, `networkKwhUsed`, `baselineKwhUsed`, `deviceKwhUsed`, `totalKwhUsed`
 
 The popup uses this data to explain where the estimate came from and whether it leaned on measured transfer size or baseline fallback logic.
+
+### Diagnostics
+
+The popup also includes a compact diagnostics section that shows:
+
+- Current account name and ID
+- Grid source and normalized grid zone
+- Backend configuration status
+- Cloud auth state and sync status
+- Retention windows for activity and daily history
 
 ### In-page badge
 
@@ -124,6 +136,8 @@ If a backend is configured, users can:
 - Sync recent activity events
 - Refresh profile details
 - Keep local-first tracking with background sync every 30 minutes
+- Validate auth sessions before storing them
+- Surface stage-specific sync errors if the backend rejects a daily or activity payload
 
 ## How It Works
 
@@ -171,6 +185,7 @@ node tests/run-tests.js
 ```
 
 These tests cover shared account and event normalization, daily aggregation, retention pruning, and model detection fallback behavior.
+They also cover grid-zone sanitization and auth session validation.
 
 ## Configuration
 
@@ -210,6 +225,7 @@ Optional in the current client logic, but typically needed for authenticated bac
 - Streaming estimates are strongest on the specifically supported watch pages.
 - Spotify support currently treats active playback as a session estimate rather than a media-quality-aware measurement.
 - Cloud sync UI is present, but backend routes must exist and match the expected API contract.
+- The diagnostics panel is local-only and intended for troubleshooting, not long-term storage.
 - The extension targets Chromium-based browsers that support Manifest V3.
 
 ## Manual Verification Checklist
@@ -220,6 +236,7 @@ Optional in the current client logic, but typically needed for authenticated bac
 - Visit Netflix, YouTube, or Spotify and confirm the in-page badge updates over time without rapidly overcounting.
 - Remove `ELECTRICITY_MAPS_KEY` and confirm the popup shows `regional average`.
 - Re-open the popup after existing usage is stored and confirm older records still render even if they lack the new provenance fields.
+- Confirm the diagnostics section shows the current account, grid source, and cloud sync state.
 
 ## License
 

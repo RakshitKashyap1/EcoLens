@@ -2,6 +2,13 @@ globalThis.EcoLensApi = (() => {
   const { getBackendConfig } = globalThis.EcoLensShared;
   const { getAuthHeaders } = globalThis.EcoLensAuth;
 
+  function ensureObjectResponse(data, endpoint) {
+    if (!data || typeof data !== "object" || Array.isArray(data) || Object.prototype.hasOwnProperty.call(data, "raw")) {
+      throw new Error(`${endpoint} returned an invalid response.`);
+    }
+    return data;
+  }
+
   // Wrap fetch so backend calls share the same config and error handling.
   async function fetchJson(path, { method = "GET", body, authState } = {}) {
     const config = getBackendConfig();
@@ -39,7 +46,7 @@ globalThis.EcoLensApi = (() => {
     return fetchJson("/auth/magic-link/start", {
       method: "POST",
       body: { email },
-    });
+    }).then((data) => ensureObjectResponse(data, "/auth/magic-link/start"));
   }
 
   // Verify the one-time code and exchange it for a session.
@@ -47,6 +54,13 @@ globalThis.EcoLensApi = (() => {
     return fetchJson("/auth/magic-link/verify", {
       method: "POST",
       body: { email, code },
+    }).then((data) => {
+      const session = ensureObjectResponse(data, "/auth/magic-link/verify");
+      const unwrapped = session.session && typeof session.session === "object" ? session.session : session;
+      if (!unwrapped.access_token && !unwrapped.accessToken) {
+        throw new Error("/auth/magic-link/verify returned an invalid session.");
+      }
+      return unwrapped;
     });
   }
 
@@ -55,7 +69,7 @@ globalThis.EcoLensApi = (() => {
     return fetchJson("/me", {
       method: "GET",
       authState,
-    });
+    }).then((data) => ensureObjectResponse(data, "/me"));
   }
 
   // Push the daily summary payload to the backend.
@@ -64,7 +78,7 @@ globalThis.EcoLensApi = (() => {
       method: "POST",
       body: payload,
       authState,
-    });
+    }).then((data) => (data == null ? data : ensureObjectResponse(data, "/sync/daily-stats")));
   }
 
   // Push recent activity events for social features or server-side analytics.
@@ -73,7 +87,7 @@ globalThis.EcoLensApi = (() => {
       method: "POST",
       body: payload,
       authState,
-    });
+    }).then((data) => (data == null ? data : ensureObjectResponse(data, "/sync/activity-events")));
   }
 
   return {

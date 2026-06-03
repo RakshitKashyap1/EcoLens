@@ -9,7 +9,7 @@ function loadShared() {
   const context = { globalThis: {} };
   vm.createContext(context);
   vm.runInContext(code, context);
-  return context.globalThis.EcoLensShared;
+  return { shared: context.globalThis.EcoLensShared, context };
 }
 
 function loadAuth(shared) {
@@ -20,7 +20,27 @@ function loadAuth(shared) {
   return context.globalThis.EcoLensAuth;
 }
 
-const shared = loadShared();
+function loadApi(shared, auth, fetchImpl, sharedContext = null) {
+  const code = fs.readFileSync(path.join(__dirname, "..", "api.js"), "utf8");
+  if (sharedContext) {
+    sharedContext.globalThis.CONFIG = {
+      API_BASE_URL: "https://example.invalid",
+      SUPABASE_ANON_KEY: "anon",
+    };
+  }
+  const context = {
+    globalThis: {
+      EcoLensShared: shared,
+      EcoLensAuth: auth,
+    },
+    fetch: fetchImpl,
+  };
+  vm.createContext(context);
+  vm.runInContext(code, context);
+  return context.globalThis.EcoLensApi;
+}
+
+const { shared, context: sharedContext } = loadShared();
 const auth = loadAuth(shared);
 
 // Verify that raw event normalization fills in defaults and derived totals.
@@ -119,6 +139,32 @@ function testBuildSessionPayloadRequiresToken() {
   );
 }
 
+// Ensure backend responses are rejected when they are not valid JSON objects.
+async function testApiRejectsInvalidJsonShapes() {
+  const badApi = loadApi(shared, auth, async () => ({
+    ok: true,
+    text: async () => "<html>nope</html>",
+  }), sharedContext);
+
+  await assert.rejects(
+    () => badApi.startEmailAuth("me@example.com"),
+    /returned an invalid response/
+  );
+}
+
+// Ensure a verify response must unwrap to a session with an access token.
+async function testApiRejectsInvalidVerifySession() {
+  const badApi = loadApi(shared, auth, async () => ({
+    ok: true,
+    text: async () => JSON.stringify({ session: { user: { id: "u-1" } } }),
+  }), sharedContext);
+
+  await assert.rejects(
+    () => badApi.verifyEmailAuth("me@example.com", "123456"),
+    /invalid session/
+  );
+}
+
 // Run the lightweight shared-logic checks from the command line.
 function run() {
   testNormalizeUsageEvent();
@@ -127,7 +173,15 @@ function run() {
   testDetectModelFromTextPrefersLongestAliasAndFallsBack();
   testNormalizeGridZoneAndFormatting();
   testBuildSessionPayloadRequiresToken();
-  console.log("EcoLens tests passed");
+  return Promise.resolve()
+    .then(testApiRejectsInvalidJsonShapes)
+    .then(testApiRejectsInvalidVerifySession)
+    .then(() => {
+      console.log("EcoLens tests passed");
+    });
 }
 
-run();
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
