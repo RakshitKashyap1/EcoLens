@@ -7,6 +7,7 @@ EcoLens is a Manifest V3 Chrome extension that makes the carbon cost of everyday
 - Tracks emissions on supported sites while you browse.
 - Shows an in-page badge with live CO2 estimates, grid intensity, data transferred, and familiar real-world equivalents.
 - Sanitizes grid-zone data before display so stale storage or network fallback pages do not leak into the UI.
+- Records a plain-language `gridFallbackReason` when live grid data is unavailable, so the UI can explain why a fallback was used.
 - Detects AI model variants on supported assistants and keeps a model-level emissions breakdown.
 - Stores daily totals, per-site totals, charts, and recent activity locally in `chrome.storage.local`.
 - Offers an extension popup with summaries, trend charts, budgets, diagnostics, and personalized reduction tips.
@@ -80,6 +81,7 @@ The popup also includes a compact diagnostics section that shows:
 - Backend configuration status
 - Cloud auth state and sync status
 - Retention windows for activity and daily history
+- The current grid fallback note, when the extension is using regional fallback data
 
 ### In-page badge
 
@@ -186,6 +188,7 @@ node tests/run-tests.js
 
 These tests cover shared account and event normalization, daily aggregation, retention pruning, and model detection fallback behavior.
 They also cover grid-zone sanitization and auth session validation.
+The test suite now includes browser-style checks for background grid fallback behavior and content-script model/energy calculations.
 
 ## Configuration
 
@@ -226,6 +229,7 @@ Optional in the current client logic, but typically needed for authenticated bac
 - Spotify support currently treats active playback as a session estimate rather than a media-quality-aware measurement.
 - Cloud sync UI is present, but backend routes must exist and match the expected API contract.
 - The diagnostics panel is local-only and intended for troubleshooting, not long-term storage.
+- The new fallback reason is informational only and does not change the actual emissions calculation.
 - The extension targets Chromium-based browsers that support Manifest V3.
 
 ## Manual Verification Checklist
