@@ -273,16 +273,27 @@ async function syncCurrentAccount(reason = "background") {
       configured: true,
       lastSyncAt: Date.now(),
       lastError: null,
+      lastErrorStage: null,
+      syncError: null,
+      syncStage: null,
       pendingEmail: null,
     });
 
     return { ok: true };
   } catch (error) {
+    const stage = error.message.includes("daily stats sync failed")
+      ? "daily-stats"
+      : error.message.includes("activity sync failed")
+      ? "activity-events"
+      : "profile";
     await saveCloudStorage(authState, {
       ...syncState,
       status: "error",
       configured: backendConfig.configured,
       lastError: error.message,
+      lastErrorStage: stage,
+      syncError: error.message,
+      syncStage: stage,
     });
     return { ok: false, error: error.message };
   }
@@ -291,29 +302,64 @@ async function syncCurrentAccount(reason = "background") {
 // Start the email-code flow and remember which address is waiting for verification.
 async function startCloudAuth(email) {
   const { authState, syncState } = await getCloudStorage();
-  await startEmailAuth(email);
-  await saveCloudStorage(authState, {
-    ...syncState,
-    status: "idle",
-    configured: getBackendConfig().configured,
-    pendingEmail: email,
-    lastError: null,
-  });
-  return { ok: true };
+  try {
+    await startEmailAuth(email);
+    await saveCloudStorage(authState, {
+      ...syncState,
+      status: "idle",
+      configured: getBackendConfig().configured,
+      pendingEmail: email,
+      lastError: null,
+      lastErrorStage: null,
+      authError: null,
+      authStage: "start",
+    });
+    return { ok: true };
+  } catch (error) {
+    await saveCloudStorage(authState, {
+      ...syncState,
+      status: "error",
+      configured: getBackendConfig().configured,
+      pendingEmail: null,
+      lastError: error.message,
+      lastErrorStage: "auth-start",
+      authError: error.message,
+      authStage: "start",
+    });
+    return { ok: false, error: error.message };
+  }
 }
 
 // Finish the login flow, store the new session, and sync local data right away.
 async function verifyCloudAuth(email, code) {
-  const session = await verifyEmailAuth(email, code);
-  const nextAuthState = buildSessionPayload(session, email);
-  await saveCloudStorage(nextAuthState, {
-    status: "idle",
-    configured: getBackendConfig().configured,
-    pendingEmail: null,
-    lastError: null,
-    lastSyncAt: null,
-  });
-  return syncCurrentAccount("auth_verify");
+  try {
+    const session = await verifyEmailAuth(email, code);
+    const nextAuthState = buildSessionPayload(session, email);
+    await saveCloudStorage(nextAuthState, {
+      status: "idle",
+      configured: getBackendConfig().configured,
+      pendingEmail: null,
+      lastError: null,
+      lastErrorStage: null,
+      authError: null,
+      authStage: "verify",
+      lastSyncAt: null,
+    });
+    return syncCurrentAccount("auth_verify");
+  } catch (error) {
+    const { authState, syncState } = await getCloudStorage();
+    await saveCloudStorage(authState, {
+      ...syncState,
+      status: "error",
+      configured: getBackendConfig().configured,
+      pendingEmail: email,
+      lastError: error.message,
+      lastErrorStage: "auth-verify",
+      authError: error.message,
+      authStage: "verify",
+    });
+    return { ok: false, error: error.message };
+  }
 }
 
 // Clear auth state so the popup and background worker return to signed-out mode.
@@ -323,6 +369,11 @@ async function clearCloudAuth() {
     configured: getBackendConfig().configured,
     pendingEmail: null,
     lastError: null,
+    lastErrorStage: null,
+    authError: null,
+    authStage: null,
+    syncError: null,
+    syncStage: null,
   });
   return { ok: true };
 }
@@ -345,18 +396,19 @@ async function refreshCloudProfile() {
 }
 
 // Use a country-based fallback when live grid data is unavailable or disabled.
-async function setFallbackGridIntensity() {
+async function setFallbackGridIntensity(reason = "regional fallback") {
   try {
     const geoRes = await fetch("https://ipapi.co/country/");
     const zone = normalizeGridZone(await geoRes.text()) || "DEFAULT";
     const intensity = (GRID_FALLBACKS[zone] ?? GRID_FALLBACKS.DEFAULT) / 1000;
-    await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: GRID_SOURCES.FALLBACK });
+    await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: GRID_SOURCES.FALLBACK, gridFallbackReason: reason });
     console.log(`[EcoLens] Fallback grid: ${zone} = ${intensity} kg/kWh`);
   } catch {
     await chrome.storage.local.set({
       gridIntensity: GRID_FALLBACKS.DEFAULT / 1000,
       gridZone: "?",
       gridSource: GRID_SOURCES.DEFAULT,
+      gridFallbackReason: reason,
     });
   }
 }
@@ -364,7 +416,7 @@ async function setFallbackGridIntensity() {
 // Resolve the current carbon intensity from Electricity Maps when a key exists.
 async function fetchGridIntensity() {
   if (!ELECTRICITY_MAPS_KEY) {
-    await setFallbackGridIntensity();
+    await setFallbackGridIntensity("Electricity Maps key missing");
     return;
   }
 
@@ -382,10 +434,10 @@ async function fetchGridIntensity() {
 
     const em = await emRes.json();
     const intensity = em.carbonIntensity / 1000;
-    await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: GRID_SOURCES.LIVE });
+    await chrome.storage.local.set({ gridIntensity: intensity, gridZone: zone, gridSource: GRID_SOURCES.LIVE, gridFallbackReason: null });
     console.log(`[EcoLens] Live grid: ${zone} = ${intensity} kg/kWh`);
   } catch {
-    await setFallbackGridIntensity();
+    await setFallbackGridIntensity("Live grid lookup failed");
   }
 }
 
@@ -587,3 +639,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     syncCurrentAccount("alarm");
   }
 });
+
+globalThis.EcoLensBackgroundTestHooks = {
+  setFallbackGridIntensity,
+  fetchGridIntensity,
+  buildSyncPayload,
+  syncCurrentAccount,
+  startCloudAuth,
+  verifyCloudAuth,
+  clearCloudAuth,
+  refreshCloudProfile,
+};

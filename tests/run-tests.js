@@ -40,6 +40,135 @@ function loadApi(shared, auth, fetchImpl, sharedContext = null) {
   return context.globalThis.EcoLensApi;
 }
 
+function createChromeMock(initial = {}) {
+  const store = { ...initial };
+  const listeners = {
+    webRequest: [],
+    runtimeMessage: [],
+    storageChanged: [],
+    tabsRemoved: [],
+    alarms: [],
+    installed: [],
+    startup: [],
+  };
+
+  const addListener = (bucket) => (fn) => {
+    bucket.push(fn);
+  };
+
+  const chrome = {
+    storage: {
+      local: {
+        get(keys, callback) {
+          const result = {};
+          const keyList = Array.isArray(keys) ? keys : [keys];
+          keyList.filter(Boolean).forEach((key) => {
+            result[key] = store[key];
+          });
+          callback(result);
+        },
+        set(value, callback) {
+          Object.assign(store, value);
+          if (callback) callback();
+        },
+      },
+      onChanged: { addListener: addListener(listeners.storageChanged) },
+    },
+    runtime: {
+      lastError: null,
+      sendMessage(message, callback) {
+        if (callback) callback();
+      },
+      onMessage: { addListener: addListener(listeners.runtimeMessage) },
+      onInstalled: { addListener: addListener(listeners.installed) },
+      onStartup: { addListener: addListener(listeners.startup) },
+    },
+    webRequest: {
+      onBeforeRequest: { addListener: addListener(listeners.webRequest) },
+      onCompleted: { addListener: addListener(listeners.webRequest) },
+    },
+    tabs: {
+      onRemoved: { addListener: addListener(listeners.tabsRemoved) },
+    },
+    alarms: {
+      create() {},
+      onAlarm: { addListener: addListener(listeners.alarms) },
+    },
+    notifications: {
+      create() {},
+    },
+  };
+
+  return { chrome, store, listeners };
+}
+
+function loadBackground(shared, auth, fetchImpl, initialStore = {}) {
+  const { chrome, store } = createChromeMock(initialStore);
+  const apiCode = fs.readFileSync(path.join(__dirname, "..", "api.js"), "utf8");
+  const code = fs.readFileSync(path.join(__dirname, "..", "background.js"), "utf8");
+  const context = {
+    globalThis: {
+      EcoLensShared: shared,
+      EcoLensAuth: auth,
+      CONFIG: {
+        ELECTRICITY_MAPS_KEY: "test-key",
+        API_BASE_URL: "https://example.invalid",
+        SUPABASE_ANON_KEY: "anon",
+      },
+    },
+    chrome,
+    fetch: fetchImpl,
+    console,
+    importScripts() {},
+    setTimeout,
+    clearTimeout,
+  };
+  vm.createContext(context);
+  vm.runInContext(apiCode, context);
+  vm.runInContext(code, context);
+  return { hooks: context.globalThis.EcoLensBackgroundTestHooks, store, chrome };
+}
+
+function loadContent(shared, auth, fetchImpl, initialStore = {}, docOverrides = {}) {
+  const { chrome, store } = createChromeMock(initialStore);
+  const fakeDocument = {
+    readyState: "complete",
+    body: { appendChild() {} },
+    head: { appendChild() {} },
+    documentElement: {},
+    getElementById() { return null; },
+    querySelectorAll() { return []; },
+    addEventListener() {},
+    removeEventListener() {},
+    ...docOverrides,
+  };
+  const code = fs.readFileSync(path.join(__dirname, "..", "content.js"), "utf8");
+  const context = {
+    globalThis: {
+      EcoLensShared: shared,
+      EcoLensAuth: auth,
+    },
+    chrome,
+    fetch: fetchImpl,
+    document: fakeDocument,
+    window: {
+      addEventListener() {},
+    },
+    location: { href: "https://example.com/" },
+    navigator: {},
+    MutationObserver: class { observe() {} },
+    requestAnimationFrame(fn) { fn(); },
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    console,
+  };
+  vm.createContext(context);
+  vm.runInContext(code, context);
+  return { hooks: context.globalThis.EcoLensContentTestHooks, store, document: fakeDocument };
+}
+
 const { shared, context: sharedContext } = loadShared();
 const auth = loadAuth(shared);
 
@@ -165,6 +294,81 @@ async function testApiRejectsInvalidVerifySession() {
   );
 }
 
+// Verify the background worker falls back to a safe default zone when the lookup returns HTML.
+async function testBackgroundFallbackGridUsesSafeZone() {
+  const calls = [];
+  const { hooks, store } = loadBackground(shared, auth, async (...args) => {
+    calls.push(args[0]);
+    return {
+      ok: true,
+      text: async () => "<!DOCTYPE html><html>challenge</html>",
+    };
+  });
+
+  await hooks.setFallbackGridIntensity("Live grid lookup failed");
+
+  assert.equal(store.gridSource, shared.GRID_SOURCES.FALLBACK);
+  assert.equal(store.gridZone, "DEFAULT");
+  assert.equal(store.gridFallbackReason, "Live grid lookup failed");
+  assert.ok(calls[0].includes("ipapi.co/country"));
+}
+
+// Verify the live grid path stores a live source and clears any fallback note.
+async function testBackgroundLiveGridFetchStoresLiveZone() {
+  let callCount = 0;
+  const { hooks, store } = loadBackground(shared, auth, async (url) => {
+    callCount += 1;
+    if (callCount === 1) {
+      return {
+        ok: true,
+        json: async () => ({ country_code: "us" }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({ carbonIntensity: 123 }),
+    };
+  });
+
+  await hooks.fetchGridIntensity();
+
+  assert.equal(store.gridSource, shared.GRID_SOURCES.LIVE);
+  assert.equal(store.gridZone, "US");
+  assert.equal(store.gridFallbackReason, null);
+}
+
+// Verify the content script can detect an AI model and compute a measured breakdown.
+function testContentModelDetectionAndBreakdown() {
+  const fakeDoc = {
+    querySelectorAll() {
+      return [
+        {
+          getAttribute(name) {
+            if (name === "aria-label") return "GPT-4o mini";
+            return "";
+          },
+          textContent: "GPT-4o mini",
+        },
+      ];
+    },
+  };
+  const { hooks } = loadContent(shared, auth, async () => ({ ok: true }), {}, fakeDoc);
+  const model = hooks.detectAiModel({ key: "chatgpt" });
+  const breakdown = hooks.buildEnergyBreakdown({
+    site: { streaming: false, base: { kWh: 0.003 }, key: "chatgpt" },
+    bytes: 50000,
+    elapsedHours: 0,
+    aiModel: model,
+    deviceInfo: { kwhPerHour: 0.02 },
+    grid: { intensity: 0.5 },
+  });
+
+  assert.equal(model.modelId, "gpt-4o-mini");
+  assert.equal(model.confidence, "detected");
+  assert.equal(breakdown.measurementMode, "measured");
+  assert.ok(breakdown.grams > 0);
+}
+
 // Run the lightweight shared-logic checks from the command line.
 function run() {
   testNormalizeUsageEvent();
@@ -176,6 +380,9 @@ function run() {
   return Promise.resolve()
     .then(testApiRejectsInvalidJsonShapes)
     .then(testApiRejectsInvalidVerifySession)
+    .then(testBackgroundFallbackGridUsesSafeZone)
+    .then(testBackgroundLiveGridFetchStoresLiveZone)
+    .then(testContentModelDetectionAndBreakdown)
     .then(() => {
       console.log("EcoLens tests passed");
     });

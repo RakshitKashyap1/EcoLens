@@ -55,6 +55,10 @@ globalThis.EcoLensShared = (() => {
   }
 
   // Small helpers for building zeroed-out totals and merging partial snapshots.
+  function isPlainObject(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
   function buildEmptyBreakdownTotals() {
     return {
       network: 0,
@@ -66,7 +70,7 @@ globalThis.EcoLensShared = (() => {
   function normalizeBreakdownTotals(breakdownTotals) {
     return {
       ...buildEmptyBreakdownTotals(),
-      ...(breakdownTotals || {}),
+      ...(isPlainObject(breakdownTotals) ? breakdownTotals : {}),
     };
   }
 
@@ -85,15 +89,16 @@ globalThis.EcoLensShared = (() => {
   // Normalize partial snapshot data so older storage records still render safely.
   function normalizeDailySnapshot(snapshot) {
     const base = buildEmptyDailySnapshot();
+    const safeSnapshot = isPlainObject(snapshot) ? snapshot : {};
     const next = {
       ...base,
-      ...(snapshot || {}),
+      ...safeSnapshot,
     };
 
-    next.bySite = { ...base.bySite, ...(snapshot?.bySite || {}) };
-    next.byModel = { ...base.byModel, ...(snapshot?.byModel || {}) };
-    next.counts = { ...base.counts, ...(snapshot?.counts || {}) };
-    next.breakdownTotals = normalizeBreakdownTotals(snapshot?.breakdownTotals);
+    next.bySite = { ...base.bySite, ...(isPlainObject(safeSnapshot.bySite) ? safeSnapshot.bySite : {}) };
+    next.byModel = { ...base.byModel, ...(isPlainObject(safeSnapshot.byModel) ? safeSnapshot.byModel : {}) };
+    next.counts = { ...base.counts, ...(isPlainObject(safeSnapshot.counts) ? safeSnapshot.counts : {}) };
+    next.breakdownTotals = normalizeBreakdownTotals(safeSnapshot.breakdownTotals);
     return next;
   }
 
@@ -123,30 +128,31 @@ globalThis.EcoLensShared = (() => {
 
   // Convert incoming event data into a safe, fully-populated storage event.
   function normalizeUsageEvent(event = {}) {
+    const safeEvent = isPlainObject(event) ? event : {};
     return {
-      ts: event.ts || Date.now(),
-      siteKey: event.siteKey || "unknown",
-      grams: Math.max(0, Number(event.grams) || 0),
-      bytes: Math.max(0, Number(event.bytes ?? event.networkBytesUsed) || 0),
-      provider: event.provider || null,
-      modelId: event.modelId || null,
-      modelLabel: event.modelLabel || null,
-      type: event.type || "visit",
-      incrementCount: event.incrementCount !== false,
-      measurementMode: event.measurementMode || MEASUREMENT_MODES.ESTIMATED,
-      gridSource: event.gridSource || GRID_SOURCES.DEFAULT,
-      gridZone: normalizeGridZone(event.gridZone) || "?",
-      deviceSource: event.deviceSource || DEVICE_SOURCES.SELECTED_DEVICE,
-      modelConfidence: event.modelConfidence || MODEL_CONFIDENCE.UNKNOWN,
-      networkBytesUsed: Math.max(0, Number(event.networkBytesUsed ?? event.bytes) || 0),
-      networkKwhUsed: Math.max(0, Number(event.networkKwhUsed) || 0),
-      baselineKwhUsed: Math.max(0, Number(event.baselineKwhUsed) || 0),
-      deviceKwhUsed: Math.max(0, Number(event.deviceKwhUsed) || 0),
+      ts: Number(safeEvent.ts) || Date.now(),
+      siteKey: typeof safeEvent.siteKey === "string" && safeEvent.siteKey.trim() ? safeEvent.siteKey : "unknown",
+      grams: Math.max(0, Number(safeEvent.grams) || 0),
+      bytes: Math.max(0, Number(safeEvent.bytes ?? safeEvent.networkBytesUsed) || 0),
+      provider: typeof safeEvent.provider === "string" && safeEvent.provider.trim() ? safeEvent.provider : null,
+      modelId: typeof safeEvent.modelId === "string" && safeEvent.modelId.trim() ? safeEvent.modelId : null,
+      modelLabel: typeof safeEvent.modelLabel === "string" && safeEvent.modelLabel.trim() ? safeEvent.modelLabel : null,
+      type: typeof safeEvent.type === "string" && safeEvent.type.trim() ? safeEvent.type : "visit",
+      incrementCount: safeEvent.incrementCount !== false,
+      measurementMode: safeEvent.measurementMode || MEASUREMENT_MODES.ESTIMATED,
+      gridSource: safeEvent.gridSource || GRID_SOURCES.DEFAULT,
+      gridZone: normalizeGridZone(safeEvent.gridZone) || "?",
+      deviceSource: safeEvent.deviceSource || DEVICE_SOURCES.SELECTED_DEVICE,
+      modelConfidence: safeEvent.modelConfidence || MODEL_CONFIDENCE.UNKNOWN,
+      networkBytesUsed: Math.max(0, Number(safeEvent.networkBytesUsed ?? safeEvent.bytes) || 0),
+      networkKwhUsed: Math.max(0, Number(safeEvent.networkKwhUsed) || 0),
+      baselineKwhUsed: Math.max(0, Number(safeEvent.baselineKwhUsed) || 0),
+      deviceKwhUsed: Math.max(0, Number(safeEvent.deviceKwhUsed) || 0),
       totalKwhUsed: Math.max(
         0,
         Number(
-          event.totalKwhUsed
-            ?? ((Number(event.networkKwhUsed) || 0) + (Number(event.baselineKwhUsed) || 0) + (Number(event.deviceKwhUsed) || 0))
+          safeEvent.totalKwhUsed
+            ?? ((Number(safeEvent.networkKwhUsed) || 0) + (Number(safeEvent.baselineKwhUsed) || 0) + (Number(safeEvent.deviceKwhUsed) || 0))
         ) || 0
       ),
     };
@@ -155,28 +161,29 @@ globalThis.EcoLensShared = (() => {
   // Merge stored account data with defaults so old records remain compatible.
   function normalizeAccountState(account, fallbackName = DEFAULT_ACCOUNT_NAME) {
     const base = buildEmptyAccountState();
+    const safeAccount = isPlainObject(account) ? account : {};
     const next = {
       ...base,
-      ...account,
+      ...safeAccount,
     };
 
     next.profile = {
       ...base.profile,
-      ...(account?.profile || {}),
+      ...(isPlainObject(safeAccount.profile) ? safeAccount.profile : {}),
     };
     next.profile.name = next.profile.name || fallbackName;
-    next.counts = { ...base.counts, ...(account?.counts || {}) };
-    next.siteTotals = { ...base.siteTotals, ...(account?.siteTotals || {}) };
-    next.modelTotals = { ...base.modelTotals, ...(account?.modelTotals || {}) };
+    next.counts = { ...base.counts, ...(isPlainObject(safeAccount.counts) ? safeAccount.counts : {}) };
+    next.siteTotals = { ...base.siteTotals, ...(isPlainObject(safeAccount.siteTotals) ? safeAccount.siteTotals : {}) };
+    next.modelTotals = { ...base.modelTotals, ...(isPlainObject(safeAccount.modelTotals) ? safeAccount.modelTotals : {}) };
     next.dailyTotals = Object.fromEntries(
-      Object.entries(account?.dailyTotals || {}).map(([dayKey, snapshot]) => [dayKey, normalizeDailySnapshot(snapshot)])
+      Object.entries(isPlainObject(safeAccount.dailyTotals) ? safeAccount.dailyTotals : {}).map(([dayKey, snapshot]) => [dayKey, normalizeDailySnapshot(snapshot)])
     );
-    next.activityLog = Array.isArray(account?.activityLog)
-      ? account.activityLog.map((event) => normalizeUsageEvent(event))
+    next.activityLog = Array.isArray(safeAccount.activityLog)
+      ? safeAccount.activityLog.map((event) => normalizeUsageEvent(event))
       : [];
     next.budget = {
       ...base.budget,
-      ...(account?.budget || {}),
+      ...(isPlainObject(safeAccount.budget) ? safeAccount.budget : {}),
     };
 
     return next;
@@ -305,6 +312,11 @@ globalThis.EcoLensShared = (() => {
       status: "idle",
       lastSyncAt: null,
       lastError: null,
+      lastErrorStage: null,
+      authError: null,
+      authStage: null,
+      syncError: null,
+      syncStage: null,
       pendingEmail: null,
       ...overrides,
     };

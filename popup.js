@@ -52,6 +52,7 @@ function getAccountStorage() {
         "gridIntensity",
         "gridZone",
         "gridSource",
+        "gridFallbackReason",
       ],
       (stored) => {
         const currentAccountId = stored.currentAccountId || DEFAULT_ACCOUNT_ID;
@@ -86,6 +87,7 @@ function getAccountStorage() {
           gridIntensity: stored.gridIntensity ?? 0.35 / 1000,
           gridZone: stored.gridZone ?? "-",
           gridSource: stored.gridSource ?? GRID_SOURCES.DEFAULT,
+          gridFallbackReason: stored.gridFallbackReason ?? null,
         });
       }
     );
@@ -550,7 +552,9 @@ function renderCloudState(authState, syncState) {
   const detailMap = {
     syncing: "Syncing your last 30 days to the backend...",
     success: "Cloud sync is healthy. Friends and challenges can read your latest totals.",
-    error: syncState.lastError || "The last sync failed.",
+    error: syncState.lastErrorStage
+      ? `${syncState.lastErrorStage} failed: ${syncState.lastError || "unknown error"}`
+      : syncState.lastError || "The last sync failed.",
     idle: signedIn
       ? "Your data stays local first, then syncs in the background."
       : "Sign in to sync daily totals, challenges, and leaderboards.",
@@ -569,6 +573,14 @@ function renderCloudState(authState, syncState) {
   signOutBtn.disabled = !signedIn;
   refreshBtn.disabled = !signedIn || syncState.status === "syncing";
   syncBtn.disabled = !signedIn || syncState.status === "syncing";
+
+  if (!signedIn && syncState.authError) {
+    authStatus.textContent = `Sign-in error: ${syncState.authError}`;
+  } else if (signedIn && syncState.authError) {
+    authStatus.textContent = `Verification error: ${syncState.authError}`;
+  } else if (syncState.syncError && syncState.status === "error") {
+    authStatus.textContent = `Sync error: ${syncState.syncError}`;
+  }
 }
 
 // Surface a compact diagnostic panel for storage, grid, and sync health.
@@ -582,6 +594,7 @@ function renderDiagnostics(account, grid, authState, syncState, accountId) {
     { label: "Backend", value: backendConfig.configured ? "configured" : "not configured" },
     { label: "Auth", value: authState.signedIn ? "signed in" : "signed out" },
     { label: "Sync", value: syncState.status || "idle" },
+    { label: "Grid note", value: grid.gridFallbackReason || (grid.source === GRID_SOURCES.LIVE ? "live data" : "regional fallback") },
     { label: "Cloud batch", value: `${CLOUD_SYNC_BATCH_DAYS} days` },
     { label: "Activity retention", value: `${ACTIVITY_RETENTION_DAYS} days` },
     { label: "Daily retention", value: `${DAILY_RETENTION_DAYS} days` },
@@ -760,6 +773,7 @@ async function boot() {
     intensity: d.gridIntensity,
     zone: d.gridZone,
     source: d.gridSource,
+    gridFallbackReason: d.gridFallbackReason,
   }, authState, syncState, d.currentAccountId);
   document.getElementById("suggestions").innerHTML = renderSuggestions(account);
   document.getElementById("week-chart").innerHTML = renderChart(account.dailyTotals, 7, false);

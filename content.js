@@ -940,3 +940,16 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
+globalThis.EcoLensContentTestHooks = {
+  detectSite,
+  detectAiModel,
+  buildEnergyBreakdown,
+  calcCo2,
+  formatGridSource,
+  formatBytes,
+  getEquiv,
+  fmt,
+  fmtKwh,
+  formatModelConfidence,
+};
